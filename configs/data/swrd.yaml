@@ -1,0 +1,31 @@
+# SWRD: download manually from the Google Drive folder linked in
+# https://github.com/bit628/RapidX-Annotator and unpack to raw_dir.
+# Run `uv run weldsight-prepare --config configs/experiment/swrd_baseline.yaml --inspect`
+# first and fix label_map if label names differ (e.g. Chinese labels).
+data:
+  name: swrd_v1
+  source: swrd
+  url: https://github.com/bit628/RapidX-Annotator
+  license: "Not stated; maintainers ask to cite Zhao et al. 2025 and contact them before redistribution/commercial use"
+  citation: "Zhao et al. SWRD: A Dataset of Radiographic Image of Seam Weld for Defect Detection. J. Nondestruct. Eval. 44 (2025)."
+  raw_dir: data/raw/swrd
+  processed_dir: data/processed/swrd_v1
+  class_names: [porosity, inclusion, crack, undercut, lack_of_fusion, lack_of_penetration]
+  source_opts:
+    group_regex: null         # e.g. "^(.+?)_\\d+$" if several images come from one weld
+    label_map:
+      气孔: porosity
+      夹渣: inclusion
+      裂纹: crack
+      咬边: undercut
+      未熔合: lack_of_fusion
+      未焊透: lack_of_penetration
+  deduplicate: true
+  patch_size: 256
+  stride: {train: 128, val: 256, test: 256}   # overlap only inside train
+  bg_keep_ratio: {train: 0.3, val: 1.0, test: 1.0}
+  min_defect_pixels: 10
+  split:
+    fractions: [0.7, 0.15, 0.15]
+    seed: 0
+    n_trials: 5000

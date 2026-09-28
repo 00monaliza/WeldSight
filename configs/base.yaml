@@ -1,0 +1,51 @@
+# Defaults shared by every experiment. Override per experiment or via CLI: key.sub=value
+seed: 42
+output_dir: runs
+
+model:
+  arch: unet
+  encoder_name: resnet34
+  encoder_weights: imagenet   # set to null when offline (no pretrained download)
+  in_channels: 1
+  decoder_dropout: 0.2        # Dropout2d before the seg head -> MC Dropout source
+  bottleneck_dropout: 0.2     # Dropout2d on the deepest encoder features
+  cls_dropout: 0.3            # dropout in the patch-level (aux) classification head
+
+loss:
+  seg_dice_weight: 1.0
+  seg_focal_weight: 1.0
+  focal_gamma: 2.0
+  cls_weight: 1.0             # multi-label patch classification (focal BCE)
+  cls_focal_gamma: 2.0
+
+train:
+  epochs: 30
+  batch_size: 16
+  lr: 3.0e-4
+  weight_decay: 1.0e-4
+  num_workers: 2
+  amp: true                   # only used on CUDA
+  grad_clip: 1.0
+  monitor: val/macro_f1       # checkpoint selection metric (higher is better)
+  patience: 7
+  subset: {train: null, val: null}   # float fraction or int count, for quick runs
+  max_steps_per_epoch: null
+  balanced_sampler: false     # baseline: no re-sampling of rare classes
+  augment:
+    hflip: 0.5
+    vflip: 0.5
+    brightness: 0.1
+    contrast: 0.1
+    gamma: 0.1
+    noise: 0.0
+  normalize: per_patch
+  device: auto
+  deterministic: true
+
+eval:
+  threshold: 0.5
+  mc_samples: 20
+  uncertainty: mutual_information   # predictive_entropy | mutual_information | max_prob
+  uncertainty_source: auto          # auto -> seg when masks exist else cls
+  radiograph_agg: max               # patch -> radiograph uncertainty: max | mean | top5
+  batch_size: 64

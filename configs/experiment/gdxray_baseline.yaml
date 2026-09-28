@@ -1,0 +1,4 @@
+_base_: [../base.yaml, ../data/gdxray.yaml]
+experiment: gdxray_baseline
+train:
+  monitor: val/mean_iou

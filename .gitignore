@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+data/raw/
+data/processed/
+runs/*
+!runs/.gitkeep
+*.pt

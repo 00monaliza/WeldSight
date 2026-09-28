@@ -1,0 +1,4 @@
+# Baseline on RIAWELC (patch labels only -> seg loss is inactive, the U-Net's
+# aux classification head is trained; see README "Dataset decision").
+_base_: [../base.yaml, ../data/riawelc.yaml]
+experiment: riawelc_baseline

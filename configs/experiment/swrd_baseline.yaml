@@ -1,0 +1,4 @@
+_base_: [../base.yaml, ../data/swrd.yaml]
+experiment: swrd_baseline
+train:
+  monitor: val/mean_iou
