@@ -1,0 +1,18 @@
+data:
+  name: riawelc_v1
+  source: riawelc
+  url: https://github.com/stefyste/RIAWELC
+  license: "No explicit license; README: 'released freely', cite Totino et al. 2022 and Perri et al. 2023"
+  citation: "Totino B., Spagnolo F., Perri S. RIAWELC: A Novel Dataset of Radiographic Images for Automatic Weld Defects Classification. ICMECE 2022."
+  raw_dir: data/raw/riawelc
+  processed_dir: data/processed/riawelc_v1
+  class_names: [crack, porosity, lack_of_penetration]
+  source_opts:
+    group_by: specimen        # specimen (strict) | radiograph
+  deduplicate: true
+  patch_size: 256
+  fit_mode: resize            # 227 -> 256
+  split:
+    fractions: [0.7, 0.15, 0.15]
+    seed: 0
+    n_trials: 20000

@@ -1,0 +1,11 @@
+# Smoke test: a few steps on a tiny subset (CPU/MPS), no pretrained weights.
+_base_: riawelc_baseline.yaml
+experiment: debug
+model: {encoder_name: resnet18, encoder_weights: null}
+train:
+  epochs: 1
+  batch_size: 8
+  num_workers: 0
+  subset: {train: 64, val: 32}
+  max_steps_per_epoch: 4
+eval: {mc_samples: 3}

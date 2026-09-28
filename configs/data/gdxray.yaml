@@ -1,0 +1,20 @@
+# GDXray Welds: download Welds.zip (Dropbox link in
+# https://github.com/computervision-xray-testing/GDXray) and unpack to raw_dir.
+data:
+  name: gdxray_welds_v1
+  source: gdxray
+  url: https://github.com/computervision-xray-testing/GDXray
+  license: "Free for research and education only; redistribution and commercial use prohibited; cite Mery et al. 2015"
+  citation: "Mery D. et al. GDXray: The database of X-ray images for nondestructive testing. J. Nondestruct. Eval. 34(4), 2015."
+  raw_dir: data/raw/gdxray
+  processed_dir: data/processed/gdxray_welds_v1
+  class_names: [defect]       # W0002 masks are binary, no defect type
+  deduplicate: false
+  patch_size: 256
+  stride: {train: 128, val: 256, test: 256}
+  bg_keep_ratio: {train: 0.5, val: 1.0, test: 1.0}
+  min_defect_pixels: 10
+  split:
+    fractions: [0.6, 0.2, 0.2]  # only 10 radiographs -> 6/2/2
+    seed: 0
+    n_trials: 2000

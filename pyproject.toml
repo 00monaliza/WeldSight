@@ -1,0 +1,42 @@
+[project]
+name = "weldsight"
+version = "0.1.0"
+description = "Weld defect segmentation on radiographs with uncertainty estimation and synthetic-defect study"
+readme = "README.md"
+requires-python = ">=3.11,<3.12"
+dependencies = [
+    "torch>=2.2",
+    "torchvision>=0.17",
+    "segmentation-models-pytorch>=0.3.3",
+    "numpy>=1.26",
+    "pandas>=2.1",
+    "pillow>=10.0",
+    "opencv-python-headless>=4.8",
+    "pyyaml>=6.0",
+    "scikit-learn>=1.3",
+    "matplotlib>=3.8",
+    "tqdm>=4.66",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "ruff>=0.4", "nbformat>=5.9", "nbconvert>=7.0", "ipykernel>=6.29"]
+
+[project.scripts]
+weldsight-prepare = "weldsight.data.prepare:main"
+weldsight-train = "weldsight.train.train:main"
+weldsight-eval = "weldsight.eval.evaluate:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/weldsight"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"

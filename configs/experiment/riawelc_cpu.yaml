@@ -1,0 +1,14 @@
+# Reduced run that fits on a 4-core CPU without internet (no pretrained weights).
+_base_: riawelc_baseline.yaml
+experiment: riawelc_cpu
+model:
+  encoder_name: resnet18
+  encoder_weights: null
+train:
+  epochs: 10
+  batch_size: 32
+  num_workers: 2
+  patience: 4
+  subset: {train: 8000, val: null}
+eval:
+  mc_samples: 10
