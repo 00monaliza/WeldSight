@@ -169,3 +169,31 @@ def test_swrd_coco_layout_in_separate_folders(tmp_path):
     assert len(recs) == 3 and src.diag["unmatched"] == []
     img, mask = src.load(recs[0])
     assert img.dtype == np.uint8 and mask.max() == 1 and (mask == 1).sum() > 1000
+
+
+def test_remote_subset_from_zip(tmp_path, fake_swrd):
+    """Subset extraction: all annotations, N seeded images, 16-bit -> 8-bit png."""
+    import zipfile
+
+    from weldsight.data.remote_subset import extract_subset
+    from weldsight.data.sources import SwrdSource
+
+    zpath = tmp_path / "swrd.zip"
+    with zipfile.ZipFile(zpath, "w") as z:
+        for f in sorted(fake_swrd.iterdir()):
+            if f.suffix == ".png":  # store as 16-bit tif like the real scans
+                im = cv2.imread(str(f), cv2.IMREAD_GRAYSCALE).astype(np.uint16) * 256
+                ok, buf = cv2.imencode(".tif", im)
+                z.writestr(f"SWRD/img/{f.stem}.tif", buf.tobytes())
+            else:
+                z.write(f, f"SWRD/ann/{f.name}")
+    out = tmp_path / "subset"
+    with zipfile.ZipFile(zpath) as z:
+        a = extract_subset(z, out, max_images=4, seed=1)
+    with zipfile.ZipFile(zpath) as z:
+        assert extract_subset(z, tmp_path / "subset2", max_images=4, seed=1) == a
+    assert len(a) == 4 and len(list(out.rglob("*.json"))) == 6
+    pngs = list(out.rglob("*.png"))
+    assert len(pngs) == 4 and cv2.imread(str(pngs[0]), cv2.IMREAD_UNCHANGED).dtype == np.uint8
+    recs = SwrdSource(out, ["porosity", "crack"]).records()
+    assert len(recs) == 4  # json in ann/, png in img/ -> matched by name

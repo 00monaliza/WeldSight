@@ -54,6 +54,11 @@ def read_gray(path: Path, window: tuple[float, float] | None = (0.5, 99.5)) -> n
     img = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
     if img is None:
         raise FileNotFoundError(path)
+    return to_uint8(img, window)
+
+
+def to_uint8(img: np.ndarray, window: tuple[float, float] | None = (0.5, 99.5)) -> np.ndarray:
+    """Grayscale uint8 from any decoded image (percentile windowing for >8-bit)."""
     if img.ndim == 3:
         img = cv2.cvtColor(img[..., :3], cv2.COLOR_BGR2GRAY)
     if img.dtype == np.uint8:
