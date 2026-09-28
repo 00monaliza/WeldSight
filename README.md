@@ -26,6 +26,10 @@ Stages 2–3 are planned in [ROADMAP.md](ROADMAP.md).
 4. **Tiny effective sample size.** The test set has each defect class in only 2–4 specimens, so
    every recall is reported with a 95 % cluster-bootstrap CI over radiographs.
 
+**Dataset decision (2026-09-28): SWRD is the main dataset** for segmentation and for stages 2–3.
+It is downloaded from Google Drive inside Colab ([notebooks/03_swrd_gpu.ipynb](notebooks/03_swrd_gpu.ipynb)).
+RIAWELC stays as a secondary patch-classification benchmark.
+
 ## Setup
 
 ```bash
@@ -100,7 +104,56 @@ they are averaged over the 1 % most uncertain pixels.
 
 ## Results
 
-RESULTS_PLACEHOLDER
+### Baseline, RIAWELC (specimen-level split), run `riawelc_cpu`
+
+**Honest scope of this run.** It was trained in an offline 4-core CPU container: ResNet-18 encoder
+**without** ImageNet weights (pretrained weights could not be downloaded), 8,000 random train
+patches per run, 9 epochs (early stop; best epoch = 5, chosen by val macro-F1). RIAWELC has no
+masks, so this is the U-Net's **patch head**, not segmentation, and there is no IoU. It is a
+pipeline-validation baseline. The reference baseline is `riawelc_baseline.yaml` (ResNet-34/ImageNet,
+full train set, GPU) and then SWRD for segmentation.
+
+Provenance: git `e3dc84c`, data_version `2c33eedecb1697b9`, seed 42, torch 2.14 / smp 0.5.0, CPU.
+
+**Test split** (real radiographs only): 3,073 patches, 21 radiographs, 6 weld specimens.
+MC Dropout T = 10, threshold 0.5.
+
+| class | test support (patches / specimens) | recall % (95 % CI) | precision % | F1 | AUROC |
+|---|---|---|---|---|---|
+| crack | 977 / 2 | **57.0** (52.6–66.7) | 67.0 | 0.62 | 0.86 |
+| porosity | 936 / 4 | **93.1** (86.8–97.2) | 93.5 | 0.93 | 0.99 |
+| lack of penetration | 658 / 3 | **19.0** (2.3–42.8) | 64.4 | 0.29 | 0.72 |
+| macro | | 56.4 | 75.0 | 0.61 | 0.86 |
+
+CI = 95 % cluster bootstrap over test radiographs.
+
+**Validation vs. test gap.** Val macro-F1 was 0.89 (lack-of-penetration recall 0.79), but on
+test it is 0.61 (LoP recall 0.19). Both splits contain unseen specimens, so the gap is
+specimen-to-specimen variance. With 2–4 specimens per class in each split, one split cannot
+estimate generalisation reliably. This is why the ROADMAP proposes specimen-level k-fold CV for
+the final comparisons.
+
+**Recall vs. share of radiographs referred to an inspector** (MC Dropout, ranking by mutual
+information, radiograph score = max over patches):
+
+(The plot is written to `runs/<run>/referral_test.png` by `weldsight-eval`.)
+
+| referred radiographs | model | random | oracle |
+|---|---|---|---|
+| 0 % | 60.4 | 60.4 | 60.4 |
+| 10 % | 65.4 | 64.1 | 69.0 |
+| 20 % | 71.2 | 67.9 | 75.9 |
+| 30 % | 76.8 | 71.5 | 81.5 |
+| area under curve | 0.832 | 0.801 | 0.875 |
+
+**How well each uncertainty score flags wrong patches** (AUROC of uncertainty vs. "patch has an
+error"): predictive entropy **0.82**, expected entropy 0.82, max-prob 0.80, mutual information
+only **0.54**. The pre-registered ranking score (mutual information, the "epistemic" part) carries
+almost no error signal here, and its referral curve is only slightly above random. Most errors
+come from patches the model is consistently unsure about (aleatoric), not from disagreement
+between dropout masks. Switching the score based on this *test* observation would be test-set
+tuning. The score should be selected on the validation split (see
+`weldsight-eval --split val --uncertainty ...`).
 
 ## Repository layout
 

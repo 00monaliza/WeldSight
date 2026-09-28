@@ -26,10 +26,21 @@ from weldsight.models.unet import build_model
 from weldsight.utils import seed_everything, select_device, write_json
 
 
-def evaluate_run(run_dir: str | Path, split: str = "test", mc_samples: int | None = None) -> dict:
+def evaluate_run(
+    run_dir: str | Path,
+    split: str = "test",
+    mc_samples: int | None = None,
+    uncertainty: str | None = None,
+) -> dict:
+    """`uncertainty` overrides the ranking score; outputs then get a `_<score>` suffix
+    so the pre-registered result files are never overwritten."""
     run_dir = Path(run_dir)
     cfg = load_config(run_dir / "config.yaml")
     ec = cfg["eval"]
+    tag = split
+    if uncertainty:
+        ec["uncertainty"] = uncertainty
+        tag = f"{split}_{uncertainty}"
     T = mc_samples or ec.get("mc_samples", 20)
     seed_everything(cfg["seed"])
     device = select_device(cfg["train"].get("device", "auto"))
@@ -95,11 +106,11 @@ def evaluate_run(run_dir: str | Path, split: str = "test", mc_samples: int | Non
     curve_patch = referral_curve(
         y_true, y_pred, unc, np.arange(len(unc)), seed=cfg["seed"], n_random=20
     )
-    curve.to_csv(run_dir / f"referral_{split}.csv", index=False)
+    curve.to_csv(run_dir / f"referral_{tag}.csv", index=False)
     plot_referral(
         curve,
         classes,
-        run_dir / f"referral_{split}.png",
+        run_dir / f"referral_{tag}.png",
         title=f"{cfg.get('experiment')} | {split} | MC Dropout T={T}, {ec.get('uncertainty')}",
     )
 
@@ -107,6 +118,7 @@ def evaluate_run(run_dir: str | Path, split: str = "test", mc_samples: int | Non
         "split": split,
         "mc_samples": T,
         "prediction_source": src,
+        "uncertainty": ec.get("uncertainty"),
         "threshold": thr,
         "n_patches": int(len(y_true)),
         "n_radiographs": int(len(np.unique(rad))),
@@ -128,9 +140,9 @@ def evaluate_run(run_dir: str | Path, split: str = "test", mc_samples: int | Non
         pred_df[f"prob_{c}"] = prob[:, k]
     for name, u in unc_all.items():
         pred_df[f"unc_{name}"] = u
-    pred_df.to_csv(run_dir / f"predictions_{split}.csv", index=False)
-    write_json(metrics, run_dir / f"metrics_{split}.json")
-    (run_dir / f"results_{split}.md").write_text(results_markdown(metrics, classes))
+    pred_df.to_csv(run_dir / f"predictions_{tag}.csv", index=False)
+    write_json(metrics, run_dir / f"metrics_{tag}.json")
+    (run_dir / f"results_{tag}.md").write_text(results_markdown(metrics, classes))
     print(results_markdown(metrics, classes))
     return metrics
 
@@ -196,8 +208,14 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--run", required=True)
     ap.add_argument("--split", default="test", choices=["train", "val", "test"])
     ap.add_argument("--mc-samples", type=int, default=None)
+    ap.add_argument(
+        "--uncertainty",
+        default=None,
+        choices=["predictive_entropy", "expected_entropy", "mutual_information", "max_prob"],
+        help="override eval.uncertainty (results are written with a suffix)",
+    )
     args = ap.parse_args(argv)
-    evaluate_run(args.run, args.split, args.mc_samples)
+    evaluate_run(args.run, args.split, args.mc_samples, args.uncertainty)
 
 
 if __name__ == "__main__":
