@@ -68,8 +68,10 @@ def referral_curve(
     order_oracle = sorted(pos_by_g.index, key=lambda g: (-missed[g], g))
     rng = np.random.default_rng(seed)
     rand = np.mean(
-        [_curve_for_order(list(rng.permutation(pos_by_g.index)), pos_by_g, tp_by_g, total)
-         for _ in range(n_random)],
+        [
+            _curve_for_order(list(rng.permutation(pos_by_g.index)), pos_by_g, tp_by_g, total)
+            for _ in range(n_random)
+        ],
         axis=0,
     )
     curves = {
@@ -81,7 +83,14 @@ def referral_curve(
     for name, c in curves.items():
         for k in range(K + 1):
             for i, f in enumerate(frac):
-                rows.append({"fraction": f, "curve": name, "class": k if k < K else "all", "recall": c[i, k]})
+                rows.append(
+                    {
+                        "fraction": f,
+                        "curve": name,
+                        "class": k if k < K else "all",
+                        "recall": c[i, k],
+                    }
+                )
     return pd.DataFrame(rows)
 
 
@@ -96,7 +105,9 @@ def summarize_curve(df: pd.DataFrame, class_names: list[str], at=(0.0, 0.1, 0.2,
             f, r = dk["fraction"].to_numpy(), dk["recall"].to_numpy()
             name = class_names[k] if k != "all" else "all"
             # largest fraction <= budget (you cannot refer part of a radiograph)
-            vals = {f"recall@{int(b * 100)}%": float(r[np.searchsorted(f, b + 1e-9) - 1]) for b in at}
+            vals = {
+                f"recall@{int(b * 100)}%": float(r[np.searchsorted(f, b + 1e-9) - 1]) for b in at
+            }
             vals["area"] = float(np.trapezoid(r, f))
             out[curve][name] = vals
     return out

@@ -31,7 +31,9 @@ class SegClsLoss(nn.Module):
         else:
             out["dice"] = out["focal"] = zero
         out["cls"] = focal_bce(cls_logits, labels, self.cls_gamma)
-        out["total"] = self.dice_w * out["dice"] + self.focal_w * out["focal"] + self.cls_w * out["cls"]
+        out["total"] = (
+            self.dice_w * out["dice"] + self.focal_w * out["focal"] + self.cls_w * out["cls"]
+        )
         return out
 
 

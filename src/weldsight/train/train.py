@@ -40,12 +40,24 @@ def make_loaders(cfg: dict, df: pd.DataFrame, classes: list[str]):
     root = cfg["data"]["processed_dir"]
     sub = tc.get("subset") or {}
     train_ds = WeldPatchDataset(
-        root, "train", classes, BasicAugment(**tc.get("augment", {})), tc.get("normalize", "per_patch"),
-        subset=sub.get("train"), seed=cfg["seed"], df=df,
+        root,
+        "train",
+        classes,
+        BasicAugment(**tc.get("augment", {})),
+        tc.get("normalize", "per_patch"),
+        subset=sub.get("train"),
+        seed=cfg["seed"],
+        df=df,
     )
     val_ds = WeldPatchDataset(
-        root, "val", classes, None, tc.get("normalize", "per_patch"),
-        subset=sub.get("val"), seed=cfg["seed"], df=df,
+        root,
+        "val",
+        classes,
+        None,
+        tc.get("normalize", "per_patch"),
+        subset=sub.get("val"),
+        seed=cfg["seed"],
+        df=df,
     )
     g = torch.Generator().manual_seed(cfg["seed"])
     sampler = None
@@ -54,10 +66,20 @@ def make_loaders(cfg: dict, df: pd.DataFrame, classes: list[str]):
         key = (lab * (2 ** np.arange(lab.shape[1]))).sum(1)
         freq = pd.Series(key).map(pd.Series(key).value_counts()).to_numpy()
         sampler = WeightedRandomSampler(1.0 / freq, len(train_ds), replacement=True, generator=g)
-    common = dict(num_workers=tc["num_workers"], worker_init_fn=seed_worker,
-                  persistent_workers=tc["num_workers"] > 0)
-    train_dl = DataLoader(train_ds, tc["batch_size"], shuffle=sampler is None, sampler=sampler,
-                          drop_last=True, generator=g, **common)
+    common = dict(
+        num_workers=tc["num_workers"],
+        worker_init_fn=seed_worker,
+        persistent_workers=tc["num_workers"] > 0,
+    )
+    train_dl = DataLoader(
+        train_ds,
+        tc["batch_size"],
+        shuffle=sampler is None,
+        sampler=sampler,
+        drop_last=True,
+        generator=g,
+        **common,
+    )
     val_dl = DataLoader(val_ds, cfg["eval"].get("batch_size", 64), shuffle=False, **common)
     return train_dl, val_dl
 
@@ -70,8 +92,10 @@ def validate(model, loader, loss_fn, device, classes, with_seg, threshold) -> di
     for b in loader:
         x = b["image"].to(device)
         seg, cls = model(x, with_seg=with_seg)
-        l = loss_fn(seg, cls, b["mask"].to(device), b["labels"].to(device), b["has_mask"].to(device))
-        losses.append({k: v.item() for k, v in l.items()})
+        parts = loss_fn(
+            seg, cls, b["mask"].to(device), b["labels"].to(device), b["has_mask"].to(device)
+        )
+        losses.append({k: v.item() for k, v in parts.items()})
         if with_seg:
             sp = torch.softmax(seg.float(), 1)
             probs.append(sp[:, 1:].flatten(2).max(-1).values.cpu().numpy())
@@ -114,8 +138,10 @@ def train(cfg: dict) -> Path:
         },
         run_dir / "provenance.json",
     )
-    print(f"[train] run_dir={run_dir} device={device} data_version={card['data_version']} "
-          f"supervision={card['supervision']}")
+    print(
+        f"[train] run_dir={run_dir} device={device} data_version={card['data_version']} "
+        f"supervision={card['supervision']}"
+    )
 
     train_dl, val_dl = make_loaders(cfg, df, classes)
     model = build_model(cfg, len(classes)).to(device)
@@ -128,7 +154,8 @@ def train(cfg: dict) -> Path:
     total = max(1, tc["epochs"] * steps_per_epoch)
     warm = max(1, int(0.03 * total))
     sched = torch.optim.lr_scheduler.LambdaLR(
-        opt, lambda s: min(1.0, (s + 1) / warm) * 0.5 * (1 + math.cos(math.pi * min(s, total) / total))
+        opt,
+        lambda s: min(1.0, (s + 1) / warm) * 0.5 * (1 + math.cos(math.pi * min(s, total) / total)),
     )
     use_amp = bool(tc.get("amp")) and device.type == "cuda"
     scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
@@ -144,43 +171,69 @@ def train(cfg: dict) -> Path:
             x = b["image"].to(device, non_blocking=True)
             with torch.autocast(device_type=device.type, dtype=torch.float16, enabled=use_amp):
                 seg, cls = model(x, with_seg=with_seg)
-            l = loss_fn(
-                None if seg is None else seg.float(), cls.float(), b["mask"].to(device),
-                b["labels"].to(device), b["has_mask"].to(device),
+            parts = loss_fn(
+                None if seg is None else seg.float(),
+                cls.float(),
+                b["mask"].to(device),
+                b["labels"].to(device),
+                b["has_mask"].to(device),
             )
             opt.zero_grad(set_to_none=True)
-            scaler.scale(l["total"]).backward()
+            scaler.scale(parts["total"]).backward()
             if tc.get("grad_clip"):
                 scaler.unscale_(opt)
                 torch.nn.utils.clip_grad_norm_(model.parameters(), tc["grad_clip"])
             scaler.step(opt)
             scaler.update()
             sched.step()
-            run_loss += l["total"].item()
+            run_loss += parts["total"].item()
             n += 1
         val = validate(model, val_dl, loss_fn, device, classes, with_seg, cfg["eval"]["threshold"])
-        rec = {"epoch": epoch, "train/loss": run_loss / max(n, 1), "lr": sched.get_last_lr()[0],
-               "sec": round(time.time() - t0, 1), **val}
+        rec = {
+            "epoch": epoch,
+            "train/loss": run_loss / max(n, 1),
+            "lr": sched.get_last_lr()[0],
+            "sec": round(time.time() - t0, 1),
+            **val,
+        }
         history.append(rec)
         pd.DataFrame(history).to_csv(run_dir / "history.csv", index=False)
         score = val.get(monitor, float("nan"))
         improved = not np.isnan(score) and score > best
-        print(f"[epoch {epoch}] loss={rec['train/loss']:.4f} val_loss={val['val/total']:.4f} "
-              f"{monitor}={score:.4f} recalls=" +
-              ",".join(f"{c}:{val[f'val/recall_{c}']:.3f}" for c in classes) +
-              f" ({rec['sec']}s){' *' if improved else ''}")
+        print(
+            f"[epoch {epoch}] loss={rec['train/loss']:.4f} val_loss={val['val/total']:.4f} "
+            f"{monitor}={score:.4f} recalls="
+            + ",".join(f"{c}:{val[f'val/recall_{c}']:.3f}" for c in classes)
+            + f" ({rec['sec']}s){' *' if improved else ''}"
+        )
         if improved:
             best, bad_epochs = score, 0
-            torch.save({"model": model.state_dict(), "classes": classes, "epoch": epoch,
-                        "monitor": monitor, "score": score}, run_dir / "best.pt")
+            torch.save(
+                {
+                    "model": model.state_dict(),
+                    "classes": classes,
+                    "epoch": epoch,
+                    "monitor": monitor,
+                    "score": score,
+                },
+                run_dir / "best.pt",
+            )
         else:
             bad_epochs += 1
             if bad_epochs >= tc.get("patience", 10):
                 print(f"[train] early stop at epoch {epoch}")
                 break
     if not (run_dir / "best.pt").exists():  # e.g. metric always NaN in smoke tests
-        torch.save({"model": model.state_dict(), "classes": classes, "epoch": epoch,
-                    "monitor": monitor, "score": float("nan")}, run_dir / "best.pt")
+        torch.save(
+            {
+                "model": model.state_dict(),
+                "classes": classes,
+                "epoch": epoch,
+                "monitor": monitor,
+                "score": float("nan"),
+            },
+            run_dir / "best.pt",
+        )
     return run_dir
 
 

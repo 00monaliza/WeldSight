@@ -200,7 +200,9 @@ class GdxraySource(Source):
                     rid,
                     "full",
                     mask_path=mp,
-                    meta={"mask_classes": self.class_names if m is not None and m.max() > 0 else []},
+                    meta={
+                        "mask_classes": self.class_names if m is not None and m.max() > 0 else []
+                    },
                 )
             )
         return recs
@@ -239,9 +241,7 @@ class SwrdSource(Source):
                 mm = re.match(group_regex, img.stem)
                 gid = mm.group(1) if mm else img.stem
             recs.append(
-                Record(
-                    img.stem, img, gid, img.stem, "full", polygons=polys, boxes_only=boxes_only
-                )
+                Record(img.stem, img, gid, img.stem, "full", polygons=polys, boxes_only=boxes_only)
             )
         return recs
 

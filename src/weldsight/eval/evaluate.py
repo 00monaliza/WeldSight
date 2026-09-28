@@ -37,9 +37,17 @@ def evaluate_run(run_dir: str | Path, split: str = "test", mc_samples: int | Non
     classes = card["class_names"]
     with_seg = card["supervision"] == "mask"
 
-    ds = WeldPatchDataset(cfg["data"]["processed_dir"], split, classes, None,
-                          cfg["train"].get("normalize", "per_patch"), df=df)
-    dl = DataLoader(ds, ec.get("batch_size", 64), shuffle=False, num_workers=cfg["train"]["num_workers"])
+    ds = WeldPatchDataset(
+        cfg["data"]["processed_dir"],
+        split,
+        classes,
+        None,
+        cfg["train"].get("normalize", "per_patch"),
+        df=df,
+    )
+    dl = DataLoader(
+        ds, ec.get("batch_size", 64), shuffle=False, num_workers=cfg["train"]["num_workers"]
+    )
     model = build_model({**cfg, "model": {**cfg["model"], "encoder_weights": None}}, len(classes))
     ckpt = torch.load(run_dir / "best.pt", map_location="cpu", weights_only=False)
     model.load_state_dict(ckpt["model"])
@@ -66,8 +74,11 @@ def evaluate_run(run_dir: str | Path, split: str = "test", mc_samples: int | Non
     rt = pd.DataFrame(y_true, columns=classes).groupby(rad).max()
     rp = pd.DataFrame(y_pred, columns=classes).groupby(rad).max()
     rad_metrics = {
-        c: {"recall": float(((rt[c] == 1) & (rp[c] == 1)).sum() / max((rt[c] == 1).sum(), 1)),
-            "support": int(rt[c].sum()), "n_radiographs": len(rt)}
+        c: {
+            "recall": float(((rt[c] == 1) & (rp[c] == 1)).sum() / max((rt[c] == 1).sum(), 1)),
+            "support": int(rt[c].sum()),
+            "n_radiographs": len(rt),
+        }
         for c in classes
     }
 
@@ -78,11 +89,19 @@ def evaluate_run(run_dir: str | Path, split: str = "test", mc_samples: int | Non
         for name, u in unc_all.items()
     }
 
-    curve = referral_curve(y_true, y_pred, unc, rad, agg=ec.get("radiograph_agg", "max"), seed=cfg["seed"])
-    curve_patch = referral_curve(y_true, y_pred, unc, np.arange(len(unc)), seed=cfg["seed"], n_random=20)
+    curve = referral_curve(
+        y_true, y_pred, unc, rad, agg=ec.get("radiograph_agg", "max"), seed=cfg["seed"]
+    )
+    curve_patch = referral_curve(
+        y_true, y_pred, unc, np.arange(len(unc)), seed=cfg["seed"], n_random=20
+    )
     curve.to_csv(run_dir / f"referral_{split}.csv", index=False)
-    plot_referral(curve, classes, run_dir / f"referral_{split}.png",
-                  title=f"{cfg.get('experiment')} | {split} | MC Dropout T={T}, {ec.get('uncertainty')}")
+    plot_referral(
+        curve,
+        classes,
+        run_dir / f"referral_{split}.png",
+        title=f"{cfg.get('experiment')} | {split} | MC Dropout T={T}, {ec.get('uncertainty')}",
+    )
 
     metrics = {
         "split": split,
@@ -141,8 +160,10 @@ def results_markdown(m: dict, classes: list[str]) -> str:
             f"{_f(m['radiograph_level'][c]['recall'], 1)} |"
         )
     mac = m["patch_level"]["_macro"]
-    lines.append(f"| **macro** | | {_f(mac['recall'], 1)} | {_f(mac['precision'], 1)} | {_f(mac['f1'])} | "
-                 f"{_f(mac['auroc'])} | {_f(seg['_mean']['iou']) if seg else '–'} | |")
+    lines.append(
+        f"| **macro** | | {_f(mac['recall'], 1)} | {_f(mac['precision'], 1)} | {_f(mac['f1'])} | "
+        f"{_f(mac['auroc'])} | {_f(seg['_mean']['iou']) if seg else '–'} | |"
+    )
     r = m["referral_radiograph"]
     lines += [
         "",
@@ -153,12 +174,20 @@ def results_markdown(m: dict, classes: list[str]) -> str:
     ]
     for b in ("0%", "10%", "20%", "30%"):
         k = f"recall@{b}"
-        lines.append(f"| {b} | {_f(r['model']['all'][k], 1)} | {_f(r['random']['all'][k], 1)} | "
-                     f"{_f(r['oracle']['all'][k], 1)} |")
-    lines.append(f"| area under curve | {_f(r['model']['all']['area'])} | {_f(r['random']['all']['area'])} | "
-                 f"{_f(r['oracle']['all']['area'])} |")
-    lines += ["", "Uncertainty → error detection AUROC: " +
-              ", ".join(f"{k}={_f(v)}" for k, v in m["uncertainty_error_auroc"].items()), ""]
+        lines.append(
+            f"| {b} | {_f(r['model']['all'][k], 1)} | {_f(r['random']['all'][k], 1)} | "
+            f"{_f(r['oracle']['all'][k], 1)} |"
+        )
+    lines.append(
+        f"| area under curve | {_f(r['model']['all']['area'])} | {_f(r['random']['all']['area'])} | "
+        f"{_f(r['oracle']['all']['area'])} |"
+    )
+    lines += [
+        "",
+        "Uncertainty → error detection AUROC: "
+        + ", ".join(f"{k}={_f(v)}" for k, v in m["uncertainty_error_auroc"].items()),
+        "",
+    ]
     return "\n".join(lines)
 
 

@@ -22,8 +22,11 @@ class SegConfusion:
         valid = gt >= 0
         idx = self.n * gt[valid].astype(np.int64) + pred[valid].astype(np.int64)
         self.cm += np.bincount(idx, minlength=self.n**2).reshape(self.n, self.n)
-        for p, g in zip(np.atleast_3d(pred).reshape(-1, *pred.shape[-2:]),
-                        np.atleast_3d(gt).reshape(-1, *gt.shape[-2:])):
+        for p, g in zip(
+            np.atleast_3d(pred).reshape(-1, *pred.shape[-2:]),
+            np.atleast_3d(gt).reshape(-1, *gt.shape[-2:]),
+            strict=True,
+        ):
             for k in range(1, self.n):
                 gk = (g == k).astype(np.uint8)
                 if not gk.any():
@@ -55,7 +58,12 @@ class SegConfusion:
         )
 
     def summary(self, class_names: list[str]) -> dict:
-        iou, rec, prec, crec = self.iou(), self.pixel_recall(), self.pixel_precision(), self.component_recall()
+        iou, rec, prec, crec = (
+            self.iou(),
+            self.pixel_recall(),
+            self.pixel_precision(),
+            self.component_recall(),
+        )
         out = {}
         for k, c in enumerate(class_names, start=1):
             out[c] = {
@@ -65,7 +73,10 @@ class SegConfusion:
                 "component_recall": crec[k],
                 "n_components": int(self.comp_total[k]),
             }
-        out["_mean"] = {"iou": float(np.nanmean(iou[1:])), "component_recall": float(np.nanmean(crec[1:]))}
+        out["_mean"] = {
+            "iou": float(np.nanmean(iou[1:])),
+            "component_recall": float(np.nanmean(crec[1:])),
+        }
         return out
 
 
@@ -83,7 +94,9 @@ def _safe_div(a, b):
     return float(a / b) if b else float("nan")
 
 
-def detection_metrics(y_true: np.ndarray, prob: np.ndarray, threshold: float, class_names: list[str]) -> dict:
+def detection_metrics(
+    y_true: np.ndarray, prob: np.ndarray, threshold: float, class_names: list[str]
+) -> dict:
     """Per-class patch-level recall/precision/F1/AUROC/AP for multi-label outputs."""
     y_pred = prob >= threshold
     out = {}
@@ -100,7 +113,9 @@ def detection_metrics(y_true: np.ndarray, prob: np.ndarray, threshold: float, cl
             "f1": _safe_div(2 * p * r, p + r) if not (np.isnan(p) or np.isnan(r)) else float("nan"),
             "specificity": _safe_div(cnt["tn"], cnt["tn"] + cnt["fp"]),
             "auroc": float(roc_auc_score(y_true[:, k], prob[:, k])) if both else float("nan"),
-            "ap": float(average_precision_score(y_true[:, k], prob[:, k])) if both else float("nan"),
+            "ap": float(average_precision_score(y_true[:, k], prob[:, k]))
+            if both
+            else float("nan"),
         }
     any_true, any_pred = y_true.any(1), y_pred.any(1)
     cnt = binary_counts(any_true, any_pred)

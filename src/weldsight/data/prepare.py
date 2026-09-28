@@ -89,6 +89,9 @@ def prepare(cfg: dict) -> Path:
     t0 = time.time()
     rng = np.random.default_rng(cfg.get("seed", 0))
     out = Path(dcfg["processed_dir"])
+    raw = Path(dcfg["raw_dir"]).resolve()
+    if out.resolve() == raw or out.resolve() in raw.parents:
+        raise ValueError(f"processed_dir {out} must not contain raw_dir {raw}")
     if out.exists() and dcfg.get("overwrite", True):
         shutil.rmtree(out)
     out.mkdir(parents=True, exist_ok=True)
@@ -98,6 +101,8 @@ def prepare(cfg: dict) -> Path:
     K = len(classes)
     records = source.records()
     n_raw = len(records)
+    if not records:
+        raise FileNotFoundError(f"No records found by '{source.name}' adapter in {dcfg['raw_dir']}")
     dedup_stats = {}
     if dcfg.get("deduplicate", True):
         records, dedup_stats = deduplicate(records)
@@ -127,8 +132,10 @@ def prepare(cfg: dict) -> Path:
         if rec.kind == "patch":
             patches = [(fit_patch(img, size, dcfg.get("fit_mode", "resize")), None, 0, 0)]
         else:
-            patches = [(p.image, p.mask, p.row, p.col) for p in tile(img, mask, size, stride[split])]
-        for i, (pim, pm, y, x) in enumerate(patches):
+            patches = [
+                (p.image, p.mask, p.row, p.col) for p in tile(img, mask, size, stride[split])
+            ]
+        for pim, pm, y, x in patches:
             if pm is not None:
                 lab = patch_labels(pm, K, min_px)
             else:
@@ -185,7 +192,8 @@ def prepare(cfg: dict) -> Path:
         **dedup_stats,
         "n_patches": len(df),
         "groups_per_split": {
-            s: sorted(df.loc[df.split == s, "group_id"].unique().tolist()) for s in ("train", "val", "test")
+            s: sorted(df.loc[df.split == s, "group_id"].unique().tolist())
+            for s in ("train", "val", "test")
         },
         "radiographs_per_split": df.groupby("split")["radiograph_id"].nunique().to_dict(),
         "patches_per_split": df["split"].value_counts().to_dict(),

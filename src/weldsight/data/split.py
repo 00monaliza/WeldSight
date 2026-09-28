@@ -67,7 +67,7 @@ def stratified_group_split(
             score += 100.0
         if score < best_score:
             best, best_score = assign.copy(), score
-    return {g: SPLITS[s] for g, s in zip(groups, best)}
+    return {g: SPLITS[s] for g, s in zip(groups, best, strict=True)}
 
 
 def check_no_group_leak(df: pd.DataFrame, group_col: str = "group_id") -> None:

@@ -57,7 +57,6 @@ class WeldUNet(nn.Module):
             seg_logits = self.segmentation_head(self.decoder_dropout(self.decoder(feats)))
         return seg_logits, cls_logits
 
-
     def forward_mc(self, x: torch.Tensor, T: int, with_seg: bool = True):
         """T stochastic passes sharing one deterministic encoder pass.
 
