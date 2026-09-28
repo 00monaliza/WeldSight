@@ -136,7 +136,7 @@ the final comparisons.
 **Recall vs. share of radiographs referred to an inspector** (MC Dropout, ranking by mutual
 information, radiograph score = max over patches):
 
-(The plot is written to `runs/<run>/referral_test.png` by `weldsight-eval`.)
+![referral curve](docs/figures/referral_test.png)
 
 | referred radiographs | model | random | oracle |
 |---|---|---|---|
