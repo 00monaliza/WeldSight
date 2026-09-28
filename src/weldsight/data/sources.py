@@ -222,19 +222,51 @@ class SwrdSource(Source):
     """
 
     name = "swrd"
+    IMG_EXTS = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp"}
 
     def records(self) -> list[Record]:
         label_map: dict = self.opts.get("label_map", {})
         group_regex = self.opts.get("group_regex")  # e.g. "^(.*)_\\d+$" to merge crops
-        img_exts = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp"}
+        # index every image in the tree by lower-case stem: annotation and image files
+        # often live in different folders (images/, labels/, json/ ...)
+        images: dict[str, Path] = {}
+        for f in sorted(self.root.rglob("*")):
+            if f.suffix.lower() in self.IMG_EXTS and f.is_file():
+                images.setdefault(f.stem.lower(), f)
+        self.diag = {
+            "images_found": len(images),
+            "annotation_files": 0,
+            "unmatched": [],
+            "unparsed": [],
+        }
+
+        items: list[tuple[Path, list, bool]] = []  # (image, polygons, boxes_only)
+        anns = sorted(list(self.root.rglob("*.json")) + list(self.root.rglob("*.xml")))
+        self.diag["annotation_files"] = len(anns)
+        for ann in anns:
+            try:
+                if ann.suffix == ".xml":
+                    polys, boxes_only = self._parse_voc(ann)
+                    items.append((self._match(ann.stem, None, images, ann), polys, boxes_only))
+                    continue
+                d = json.loads(ann.read_text(encoding="utf-8"))
+                if isinstance(d, dict) and {"images", "annotations"} <= set(d):
+                    for stem, polys in self._parse_coco(d):  # one file, many images
+                        items.append((self._match(stem, None, images, ann), polys, False))
+                elif isinstance(d, dict) and "shapes" in d:
+                    polys, _ = self._parse_labelme(d)
+                    items.append(
+                        (self._match(ann.stem, d.get("imagePath"), images, ann), polys, False)
+                    )
+                else:
+                    self.diag["unparsed"].append(str(ann))
+            except Exception as e:  # noqa: BLE001 - report and continue
+                self.diag["unparsed"].append(f"{ann}: {e}")
+
         recs = []
-        for ann in sorted(list(self.root.rglob("*.json")) + list(self.root.rglob("*.xml"))):
-            img = self._find_image(ann, img_exts)
+        for img, polys, boxes_only in items:
             if img is None:
                 continue
-            polys, boxes_only = (
-                self._parse_json(ann) if ann.suffix == ".json" else self._parse_voc(ann)
-            )
             polys = [(label_map.get(c, c), p) for c, p in polys]
             gid = img.stem
             if group_regex:
@@ -245,23 +277,38 @@ class SwrdSource(Source):
             )
         return recs
 
-    @staticmethod
-    def _find_image(ann: Path, exts) -> Path | None:
-        for ext in exts:
-            for cand in (ann.with_suffix(ext), ann.with_suffix(ext.upper())):
-                if cand.exists():
-                    return cand
-        # common layout: .../labels/x.json + .../images/x.png
-        for sib in ("images", "JPEGImages", "img"):
-            d = ann.parent.parent / sib
-            for ext in exts:
-                if (d / (ann.stem + ext)).exists():
-                    return d / (ann.stem + ext)
+    def _match(self, stem: str, image_path: str | None, images: dict, ann: Path) -> Path | None:
+        for key in (stem, Path(image_path.replace("\\", "/")).stem if image_path else None):
+            if key and key.lower() in images:
+                return images[key.lower()]
+        self.diag["unmatched"].append(str(ann) if stem == ann.stem else f"{ann}:{stem}")
         return None
 
     @staticmethod
+    def _parse_coco(d: dict):
+        cats = {c["id"]: str(c["name"]).strip() for c in d.get("categories", [])}
+        by_img: dict[int, list] = {im["id"]: [] for im in d["images"]}
+        for a in d["annotations"]:
+            name = cats.get(a.get("category_id"), str(a.get("category_id")))
+            seg = a.get("segmentation")
+            if isinstance(seg, list) and seg:
+                for poly in seg:
+                    pts = np.asarray(poly, np.float32).reshape(-1, 2)
+                    if len(pts) >= 3:
+                        by_img[a["image_id"]].append((name, pts))
+            elif a.get("bbox"):
+                x, y, w, h = a["bbox"]
+                pts = np.array([[x, y], [x + w, y], [x + w, y + h], [x, y + h]], np.float32)
+                by_img[a["image_id"]].append((name, pts))
+        for im in d["images"]:
+            yield Path(im["file_name"].replace("\\", "/")).stem, by_img[im["id"]]
+
+    @staticmethod
     def _parse_json(p: Path):
-        d = json.loads(p.read_text(encoding="utf-8"))
+        return SwrdSource._parse_labelme(json.loads(p.read_text(encoding="utf-8")))
+
+    @staticmethod
+    def _parse_labelme(d: dict):
         polys = []
         for s in d.get("shapes", []):
             pts = np.asarray(s["points"], np.float32)

@@ -216,7 +216,34 @@ def prepare(cfg: dict) -> Path:
 def inspect(cfg: dict) -> None:
     """Print what the adapter sees (labels, groups) without writing anything."""
     source = build_source(cfg["data"])
+    root = Path(cfg["data"]["raw_dir"])
+    files = [f for f in root.rglob("*") if f.is_file()] if root.exists() else []
+    print(f"raw_dir: {root.resolve()} (exists={root.exists()}), {len(files)} files")
+    print(
+        "files by extension:",
+        dict(Counter(f.suffix.lower() or "<none>" for f in files).most_common(15)),
+    )
+    print("sample paths:", *[str(f.relative_to(root)) for f in sorted(files)[:10]], sep="\n  ")
+    archives = [f for f in files if f.suffix.lower() in {".zip", ".rar", ".7z", ".tar", ".gz"}]
+    if archives:
+        print(f"WARNING: {len(archives)} archives not unpacked, e.g. {archives[0].name}")
     recs = source.records()
+    diag = getattr(source, "diag", None)
+    if diag:
+        print(f"images found: {diag['images_found']}, annotation files: {diag['annotation_files']}")
+        if diag["unmatched"]:
+            print(
+                f"annotations without a matching image: {len(diag['unmatched'])}, e.g.",
+                diag["unmatched"][:3],
+            )
+        if diag["unparsed"]:
+            print(
+                f"annotation files in an unknown format: {len(diag['unparsed'])}, e.g.",
+                diag["unparsed"][:3],
+            )
+            first = Path(str(diag["unparsed"][0]).split(": ")[0])
+            if first.exists():
+                print("first unknown file starts with:", first.read_text(errors="replace")[:400])
     labels = Counter(c for r in recs for c in r.present_classes())
     print(f"{len(recs)} records, {len({r.group_id for r in recs})} groups")
     print("label counts:", dict(labels))

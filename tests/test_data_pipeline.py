@@ -138,3 +138,34 @@ def test_prepare_swrd_masks(fake_swrd, tmp_path):
             assert row[f"px_{c}"] == (m == k).sum()
             assert row[f"cls_{c}"] == int((m == k).sum() >= cfg["data"]["min_defect_pixels"])
     assert df["cls_porosity"].sum() > 0 and df["cls_crack"].sum() > 0
+
+
+def test_swrd_coco_layout_in_separate_folders(tmp_path):
+    """COCO json in annotations/, images in images/ -> matched by file name."""
+    import json
+
+    from weldsight.data.sources import SwrdSource
+
+    root = tmp_path / "coco"
+    (root / "images").mkdir(parents=True)
+    (root / "annotations").mkdir()
+    ims, anns = [], []
+    for i in range(3):
+        cv2.imwrite(str(root / "images" / f"W_{i}.tif"), np.full((300, 600), 128, np.uint16))
+        ims.append({"id": i, "file_name": f"images\\W_{i}.tif", "width": 600, "height": 300})
+        anns.append(
+            {
+                "id": i,
+                "image_id": i,
+                "category_id": 1,
+                "segmentation": [[10, 10, 60, 10, 60, 40, 10, 40]],
+                "bbox": [10, 10, 50, 30],
+            }
+        )
+    coco = {"images": ims, "annotations": anns, "categories": [{"id": 1, "name": "气孔"}]}
+    (root / "annotations" / "all.json").write_text(json.dumps(coco, ensure_ascii=False))
+    src = SwrdSource(root, ["porosity", "crack"], label_map={"气孔": "porosity"})
+    recs = src.records()
+    assert len(recs) == 3 and src.diag["unmatched"] == []
+    img, mask = src.load(recs[0])
+    assert img.dtype == np.uint8 and mask.max() == 1 and (mask == 1).sum() > 1000
