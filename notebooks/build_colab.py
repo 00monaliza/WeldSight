@@ -7,7 +7,7 @@ md = lambda s: c.append(nbf.v4.new_markdown_cell(s))
 code = lambda s: c.append(nbf.v4.new_code_cell(s))
 md("""# WeldSight: baseline training on a single GPU (Kaggle / Colab T4)
 Runtime → GPU. On Kaggle enable *Internet*. Takes ~1–1.5 h for RIAWELC with resnet34/ImageNet.""")
-code("""!git clone -b claude/weldsight-stage-1-setup-eeev49 https://github.com/00monaliza/WeldSight.git
+code("""!git clone https://github.com/00monaliza/WeldSight.git
 %cd WeldSight
 !pip -q install uv && uv sync --extra dev
 !apt-get -qq install -y unrar > /dev/null""")
