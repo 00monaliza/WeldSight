@@ -247,7 +247,8 @@ def inspect(cfg: dict) -> None:
     labels = Counter(c for r in recs for c in r.present_classes())
     print(f"{len(recs)} records, {len({r.group_id for r in recs})} groups")
     print("label counts:", dict(labels))
-    unknown = set(labels) - set(source.class_names)
+    # labels mapped to "_name" are known and deliberately not drawn
+    unknown = {c for c in labels if c not in source.class_names and not str(c).startswith("_")}
     if unknown:
         print("WARNING: labels not in class_names (add them to label_map):", unknown)
 

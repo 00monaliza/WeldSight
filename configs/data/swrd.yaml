@@ -12,14 +12,23 @@ data:
   processed_dir: data/processed/swrd_v1
   class_names: [porosity, inclusion, crack, undercut, lack_of_fusion, lack_of_penetration]
   source_opts:
-    group_regex: null         # e.g. "^(.+?)_\\d+$" if several images come from one weld
-    label_map:
+    # Use only crop_weld_data (weld-bead strips cut from Raw_data films; A_/B_ = two strips of
+    # one film). Never mix with Raw_data: the same film would land in two splits.
+    # Group by shooting date: a day holds up to ~200 films, overlapping exposures of one weld
+    # show the same defect twice. 75 dates + 21 BAM RRT films (same series as RIAWELC).
+    group_regex: "^(?:[AB]_)?(?:DJ-RT-(?:T-)?)?(\\d{8}|RRT-\\d+R)"
+    label_map:                # labels checked on the archive (notebooks/swrd_peek.py)
       气孔: porosity
       夹渣: inclusion
       裂纹: crack
       咬边: undercut
       未熔合: lack_of_fusion
       未焊透: lack_of_penetration
+      # not in class_names -> not drawn (background):
+      焊缝: _weld_seam         # bead region outline, useful later as a paste mask (stage 2)
+      伪缺陷: _pseudo_defect    # look-alike artefacts marked as NOT a defect
+      夹钨: _tungsten_inclusion # bright (dense) inclusion, very rare; not merged with slag
+      焊瘤: _overlap            # weld overlap, ~1 per 150 files
   deduplicate: true
   patch_size: 256
   stride: {train: 128, val: 256, test: 256}   # overlap only inside train
