@@ -11,12 +11,17 @@ unchanged, so polygon coordinates stay valid.
     uv run weldsight-remote-subset --url URL --max-images 600  # subset
     uv run weldsight-remote-subset --zip local.zip ...          # same from a local zip
 
+Google Drive: anonymous downloads of a popular file hit "Too many users ...". Read it through
+the Drive API as yourself instead (no Drive storage needed): put an OAuth access token in
+$GDRIVE_TOKEN and use https://www.googleapis.com/drive/v3/files/<ID>?alt=media as --url.
+
 The list of extracted images is written to `<out>/_subset.txt` (seeded, resumable).
 """
 
 from __future__ import annotations
 
 import argparse
+import os
 import random
 import re
 import zipfile
@@ -101,12 +106,42 @@ def extract_subset(
     return chosen
 
 
-def open_zip(url: str | None, path: str | None) -> zipfile.ZipFile:
+def _range_size_fetcher():
+    """remotezip asks for the file size with HEAD, which some endpoints (Drive API) do not
+    answer with Content-Length; a 1-byte GET returns it in Content-Range instead."""
+    import requests
+    from remotezip import RemoteFetcher, RemoteZipError
+
+    class RangeSizeFetcher(RemoteFetcher):
+        def get_file_size(self):
+            res = requests.get(self._url, **self.prepare_request((0, 0)))
+            res.raise_for_status()
+            total = res.headers.get("Content-Range", "").rpartition("/")[2]
+            if not total.isdigit():
+                raise RemoteZipError(
+                    f"no file size in response ({res.status_code}, "
+                    f"{res.headers.get('Content-Type')})"
+                )
+            return int(total)
+
+    return RangeSizeFetcher
+
+
+def open_zip(url: str | None, path: str | None, token: str | None = None) -> zipfile.ZipFile:
     if path:
         return zipfile.ZipFile(path)
     from remotezip import RemoteZip
 
-    return RemoteZip(url, support_suffix_range=False)
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    try:
+        return RemoteZip(
+            url, support_suffix_range=False, fetcher=_range_size_fetcher(), headers=headers
+        )
+    except zipfile.BadZipFile as e:
+        raise SystemExit(
+            f"{e}: the server did not return a zip. Google Drive usually answers with an HTML "
+            "page (quota / virus-scan warning); use the Drive API URL with $GDRIVE_TOKEN."
+        ) from e
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -119,8 +154,11 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--max-images", type=int, default=None)
     ap.add_argument("--include", default=None, help="regex on member paths, e.g. 'T-joint'")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument(
+        "--token-env", default="GDRIVE_TOKEN", help="env var with an OAuth bearer token (optional)"
+    )
     args = ap.parse_args(argv)
-    with open_zip(args.url, args.zip) as zf:
+    with open_zip(args.url, args.zip, os.environ.get(args.token_env)) as zf:
         report = describe(zf)
         print(report)
         Path(args.out).mkdir(parents=True, exist_ok=True)
