@@ -114,7 +114,9 @@ def _range_size_fetcher():
 
     class RangeSizeFetcher(RemoteFetcher):
         def get_file_size(self):
-            res = requests.get(self._url, **self.prepare_request((0, 0)))
+            # stream: if the server ignores Range we must not start a 116 GB download
+            res = requests.get(self._url, stream=True, **self.prepare_request((0, 0)))
+            res.close()
             res.raise_for_status()
             total = res.headers.get("Content-Range", "").rpartition("/")[2]
             if not total.isdigit():
@@ -135,7 +137,11 @@ def open_zip(url: str | None, path: str | None, token: str | None = None) -> zip
     headers = {"Authorization": f"Bearer {token}"} if token else {}
     try:
         return RemoteZip(
-            url, support_suffix_range=False, fetcher=_range_size_fetcher(), headers=headers
+            url,
+            support_suffix_range=False,
+            fetcher=_range_size_fetcher(),
+            headers=headers,
+            timeout=60,  # requests has no default timeout: fail instead of hanging
         )
     except zipfile.BadZipFile as e:
         raise SystemExit(
