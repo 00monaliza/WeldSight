@@ -32,7 +32,7 @@ print(
 
 stem = lambda n: P(n).stem
 raw = {stem(i.filename) for i in by_dir["Raw_data/images"]}
-crop = [stem(i.filename) for d, l in by_dir.items() if "crop_weld_images" in d for i in l]
+crop = [stem(i.filename) for d, lst in by_dir.items() if "crop_weld_images" in d for i in lst]
 base = Counter(re.sub(r"^[A-Z]_", "", s) for s in crop)
 print(
     "\n== crops vs raw: crop stems",
