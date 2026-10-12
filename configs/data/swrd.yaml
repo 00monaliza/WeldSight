@@ -29,6 +29,8 @@ data:
       伪缺陷: _pseudo_defect    # look-alike artefacts marked as NOT a defect
       夹钨: _tungsten_inclusion # bright (dense) inclusion, very rare; not merged with slag
       焊瘤: _overlap            # weld overlap, ~1 per 150 files
+      内凹: _root_concavity     # 3 of 3,677 raw films
+      "None": _unlabelled      # a shape saved without a label (1 raw film)
   deduplicate: true
   patch_size: 256
   stride: {train: 128, val: 256, test: 256}   # overlap only inside train
