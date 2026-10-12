@@ -197,3 +197,48 @@ def test_remote_subset_from_zip(tmp_path, fake_swrd):
     assert len(pngs) == 4 and cv2.imread(str(pngs[0]), cv2.IMREAD_UNCHANGED).dtype == np.uint8
     recs = SwrdSource(out, ["porosity", "crack"]).records()
     assert len(recs) == 4  # json in ann/, png in img/ -> matched by name
+
+
+def test_split_audit_from_zip(tmp_path):
+    """Audit: crop json only, groups by date via the real config regex, Chinese labels mapped."""
+    import json
+    import zipfile
+
+    from weldsight.data.split_audit import (
+        class_group_table,
+        collect,
+        polygon_area,
+        records_from_labels,
+        report,
+    )
+
+    assert polygon_area([[0, 0], [4, 0], [4, 3], [0, 3]]) == 12
+    sq = [[0, 0], [10, 0], [10, 10], [0, 10]]
+    zpath = tmp_path / "swrd.zip"
+    with zipfile.ZipFile(zpath, "w") as z:
+        for day in range(8):
+            for film in range(3 + 150 * (day == 7)):  # one big day: group sums > 255
+                labels = ["气孔"] + (["裂纹"] if day < 2 else []) + ["焊缝"]
+                js = {"shapes": [{"label": lab, "points": sq} for lab in labels]}
+                for strip in "AB":
+                    name = f"{strip}_DJ-RT-2022120{day}-{film}.json"
+                    z.writestr(f"crop_weld_data/crop_weld_jsons/T/1/{name}", json.dumps(js))
+        z.writestr("Raw_data/json/DJ-RT-20221200-0.json", json.dumps({"shapes": []}))
+        z.writestr("crop_weld_data/crop_weld_jsons/L/1/RRT-12R.json", json.dumps({"shapes": []}))
+    out = tmp_path / "labels.csv"
+    df = collect(None, str(zpath), "crop_weld_data/crop_weld_jsons/", out, workers=4)
+    assert len(df) == (8 * 3 + 150) * 2 + 1  # Raw_data excluded
+    shapes = json.loads(df.set_index("stem").loc["A_DJ-RT-20221200-0", "shapes"])
+    assert shapes["裂纹"] == [1, 100.0]  # label -> [count, area]
+    assert len(collect(None, str(zpath), "crop_weld_data/crop_weld_jsons/", out)) == len(df)
+    cfg = load_config(REPO / "configs/experiment/swrd_baseline.yaml")
+    rec, _ = records_from_labels(df, cfg["data"]["source_opts"], cfg["data"]["class_names"])
+    assert rec["group_id"].nunique() == 9  # 8 dates + RRT-12R
+    t = class_group_table(rec, cfg["data"]["class_names"])
+    assert (t.loc["crack", "records"], t.loc["crack", "groups"]) == (12, 2)
+    assert (
+        t.loc["porosity", "eff_groups"] == round(348**2 / (7 * 6**2 + 306**2), 1)
+        and t.loc["undercut", "records"] == 0
+    )
+    text = report(out, str(REPO / "configs/experiment/swrd_baseline.yaml"), seeds=2, k=3)
+    assert "349 records, 9 groups" in text and "3-fold" in text
