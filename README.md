@@ -63,6 +63,32 @@ SWRD / GDXray: download manually (links in `configs/data/*.yaml`) into `data/raw
 `data/raw/gdxray`, check the labels with `weldsight-prepare --config ... --inspect`, then use
 `configs/experiment/swrd_baseline.yaml` or `gdxray_baseline.yaml`.
 
+## Web interface
+
+React + TypeScript frontend in [`frontend/`](frontend/) and a FastAPI server in
+[`src/weldsight/serve/`](src/weldsight/serve/).
+
+```bash
+uv sync --extra serve
+uv run weldsight-serve --run runs/<swrd_run>        # trained on masks; or --stub (no checkpoint)
+
+cd frontend && npm install && npm run dev            # http://localhost:5173, /api proxied to :8000
+# one process instead: npm run build, then
+uv run weldsight-serve --run runs/<swrd_run> --static frontend/dist
+```
+
+- **Inspect**: drop a radiograph, get the defect overlay, an uncertainty heat-map (predictive entropy or
+  mutual information), per-defect probabilities and a "send to inspector" decision with an adjustable threshold.
+- **Stage 1 results**: the RIAWELC baseline numbers from this README (recall with CIs, referral curve, uncertainty-score AUROC).
+- **API**: the `/api/predict` contract (also documented in the UI).
+
+The server tiles the film like val/test data (`data.patch_size`, per-patch normalisation), runs MC Dropout
+and returns the class mask, two uncertainty maps and a region list. A run trained on RIAWELC is refused
+(label-only supervision, untrained decoder).
+
+No checkpoint is committed, so two stand-ins exist and both say so on screen: the browser **demo engine**
+and the server `--stub`. They are blur-difference heuristics for exercising the UI, not WeldSight results.
+
 ## Reproducibility
 
 - Every setting lives in YAML (`configs/`, with `_base_` inheritance) and can be overridden with `key=value`.
@@ -168,7 +194,9 @@ src/weldsight/
   train/            train (CLI)
   eval/             metrics, uncertainty (MC dropout), referral curve, evaluate (CLI)
   synth/            placeholder for stages 2-3
-tests/              patching, split/leakage, prepare (RIAWELC & SWRD formats), model, metrics, smoke
+tests/              patching, split/leakage, prepare (RIAWELC & SWRD formats), model, metrics, smoke, serve
+src/weldsight/serve/ FastAPI inference server (tiled MC Dropout -> /api/predict)
+frontend/           React + TypeScript UI (npm run dev / build / test)
 ```
 
 ## Citation of data
