@@ -56,13 +56,17 @@ class TorchPredictor:
         self.patch = int(data.get("patch_size", 256))
         self.norm = cfg["train"].get("normalize", "per_patch")
         self.batch_size = batch_size
-        self.device = select_device(
-            device if device != "auto" else cfg["train"].get("device", "auto")
-        )
+        self.device = select_device(device)  # "auto" = best device of *this* host
         model = build_model(
             {**cfg, "model": {**cfg["model"], "encoder_weights": None}}, len(self.classes)
         )
-        ckpt = torch.load(run_dir / "best.pt", map_location="cpu", weights_only=False)
+        # tensors + primitives only (see train.py), so no pickle code execution is needed
+        ckpt = torch.load(run_dir / "best.pt", map_location="cpu", weights_only=True)
+        if ckpt.get("classes") is not None and list(ckpt["classes"]) != self.classes:
+            raise ValueError(
+                f"class order in {run_dir.name}/config.yaml {self.classes} differs from the "
+                f"checkpoint's {list(ckpt['classes'])}; refusing to mislabel predictions"
+            )
         model.load_state_dict(ckpt["model"])
         self.model = enable_mc_dropout(model.to(self.device))
         self.name = f"{cfg.get('experiment', run_dir.name)} (epoch {ckpt.get('epoch', '?')})"
@@ -90,30 +94,31 @@ class TorchPredictor:
         C = len(self.classes) + 1
         ph, pw = max(h, self.patch), max(w, self.patch)  # tile() reflect-pads small images
         acc = np.zeros((C, ph, pw), np.float32)
-        pe_acc, mi_acc, cnt = (np.zeros((ph, pw), np.float32) for _ in range(3))
+        ee_acc, cnt = (np.zeros((ph, pw), np.float32) for _ in range(2))
         norm = math.log(C)
+        # forward_mc keeps all T logit tensors: bound them by shrinking the batch as T grows
+        bs = max(1, min(self.batch_size, 64 // mc_samples))
         with torch.no_grad():
-            for i in range(0, len(patches), self.batch_size):
-                chunk = patches[i : i + self.batch_size]
+            for i in range(0, len(patches), bs):
+                chunk = patches[i : i + bs]
                 x = torch.from_numpy(np.stack([self._normalize(p.image) for p in chunk]))[
                     :, None
                 ].to(self.device)
                 seg, _ = self.model.forward_mc(x, mc_samples, with_seg=True)
                 S = torch.softmax(seg.float(), 2)  # [T,B,C,H,W]
-                mean = S.mean(0)
-                pe = -(mean * torch.log(mean + EPS)).sum(1)
-                ee = -(S * torch.log(S + EPS)).sum(2).mean(0)
-                mi = (pe - ee).clamp_min(0)
-                mean, pe, mi = mean.cpu().numpy(), pe.cpu().numpy(), mi.cpu().numpy()
+                mean = S.mean(0).cpu().numpy()
+                ee = (-(S * torch.log(S + EPS)).sum(2).mean(0)).cpu().numpy()
                 for j, p in enumerate(chunk):
                     sl = (slice(p.row, p.row + self.patch), slice(p.col, p.col + self.patch))
                     acc[(slice(None), *sl)] += mean[j]
-                    pe_acc[sl] += pe[j]
-                    mi_acc[sl] += mi[j]
+                    ee_acc[sl] += ee[j]
                     cnt[sl] += 1
+        # Average the per-tile mean probabilities and expected entropies, then derive pe/mi from
+        # the stitched mean, so where shifted tiles overlap the maps describe the returned probs.
         acc /= cnt
-        pe_acc /= cnt
-        mi_acc /= cnt
+        ee_acc /= cnt
+        pe_acc = -(acc * np.log(acc + EPS)).sum(0)
+        mi_acc = np.maximum(pe_acc - ee_acc, 0)
         return Prediction(
             probs=acc[:, :h, :w],
             pe=np.clip(pe_acc[:h, :w] / norm, 0, 1),
@@ -149,31 +154,24 @@ class StubPredictor:
         med = np.median(z[::7, ::7])
         sd = max(0.5, 1.4826 * float(np.median(np.abs(z[::7, ::7] - med))))
         z = (z - med) / sd
-        gate = z >= 2.5
-        T = mc_samples
-        noise = (
-            self._rng.standard_normal((T, *z.shape)).astype(np.float32) * 0.9
-            if z.size * T < 6e7
-            else None
-        )
-        if noise is None:  # very large image: sample noise only where it matters
-            noise = np.zeros((T, *z.shape), np.float32)
-            noise[:, gate] = self._rng.standard_normal((T, int(gate.sum()))) * 0.9
-        p = 1 / (1 + np.exp(-(z[None] + noise - 5.2) / 0.8))
-        p = np.where(gate[None], p, 0.0).astype(np.float32)
-        mean = p.mean(0)
-        H = lambda q: (
-            -(
-                np.clip(q, EPS, 1 - EPS) * np.log(np.clip(q, EPS, 1 - EPS))
-                + (1 - np.clip(q, EPS, 1 - EPS)) * np.log(1 - np.clip(q, EPS, 1 - EPS))
-            )
-        )  # noqa: E731
-        pe = np.where(gate, H(mean) / math.log(2), 0.0)
-        mi = np.where(gate, np.clip((H(mean) - H(p).mean(0)) / 0.3, 0, 1), 0.0)
+        idx = np.flatnonzero(z >= 2.5)  # everything else has p = 0, so only these pixels matter
+        zz = z.ravel()[idx]
+        sum_p, sum_h = np.zeros(idx.size, np.float32), np.zeros(idx.size, np.float32)
+        for _ in range(mc_samples):  # one pass at a time: memory stays O(pixels)
+            noise = self._rng.standard_normal(idx.size).astype(np.float32) * 0.9
+            q = np.clip(1 / (1 + np.exp(-(zz + noise - 5.2) / 0.8)), EPS, 1 - EPS)
+            sum_p += q
+            sum_h += -(q * np.log(q) + (1 - q) * np.log(1 - q))
+        mean = np.clip(sum_p / mc_samples, EPS, 1 - EPS)
+        h_mean = -(mean * np.log(mean) + (1 - mean) * np.log(1 - mean))
+        fg, pe, mi = (np.zeros(z.size, np.float32) for _ in range(3))
+        fg[idx] = sum_p / mc_samples
+        pe[idx] = h_mean / math.log(2)
+        mi[idx] = np.clip((h_mean - sum_h / mc_samples) / 0.3, 0, 1)
         probs = np.zeros((len(self.classes) + 1, *z.shape), np.float32)
-        probs[0] = 1 - mean
-        probs[1] = mean
-        return Prediction(probs, pe.astype(np.float32), mi.astype(np.float32))
+        probs[0] = 1 - fg.reshape(z.shape)
+        probs[1] = fg.reshape(z.shape)
+        return Prediction(probs, pe.reshape(z.shape), mi.reshape(z.shape))
 
 
 class LockedPredictor:

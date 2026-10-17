@@ -21,9 +21,16 @@ interface PredictResponse {
 }
 
 const base = (url: string) => url.trim().replace(/\/+$/, "");
+const PREDICT_TIMEOUT_MS = 120_000;
+const HEALTH_TIMEOUT_MS = 5_000;
+
+function withTimeout(signal: AbortSignal | undefined, ms: number): AbortSignal {
+  const t = AbortSignal.timeout(ms);
+  return signal ? AbortSignal.any([signal, t]) : t;
+}
 
 export async function fetchHealth(apiUrl: string, signal?: AbortSignal): Promise<Health> {
-  const r = await fetch(`${base(apiUrl)}/api/health`, { signal });
+  const r = await fetch(`${base(apiUrl)}/api/health`, { signal: withTimeout(signal, HEALTH_TIMEOUT_MS) });
   if (!r.ok) throw new Error(`health check failed (${r.status})`);
   return r.json();
 }
@@ -49,31 +56,45 @@ export async function runApi(film: Film, apiUrl: string, mc: number, signal?: Ab
   body.append("image", film.file ?? (await canvasToBlob(film.base)), film.file?.name ?? film.name);
   body.append("mc_samples", String(mc));
   body.append("max_dim", String(MAX_DIM));
-  const resp = await fetch(`${base(apiUrl)}/api/predict`, { method: "POST", body, signal });
+  let resp: Response;
+  try {
+    resp = await fetch(`${base(apiUrl)}/api/predict`, { method: "POST", body, signal: withTimeout(signal, PREDICT_TIMEOUT_MS) });
+  } catch (e) {
+    if ((e as Error).name === "TimeoutError") throw new Error(`API did not answer within ${PREDICT_TIMEOUT_MS / 1000}s`);
+    throw e;
+  }
   if (!resp.ok) {
     let detail = "";
     try { const j = await resp.json(); detail = typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail); } catch { /* not json */ }
     throw new Error(`API ${resp.status}${detail ? `: ${detail}` : ""}`);
   }
   const j: PredictResponse = await resp.json();
+  // A missing uncertainty must not read as "certain": refuse the response instead of defaulting to 0.
+  if (!j.mask_png || !j.maps?.pe || !j.maps?.mi || !Array.isArray(j.defects) || !Array.isArray(j.classes)) {
+    throw new Error("API response is missing mask_png, maps.pe/mi, classes or defects");
+  }
+  if (j.defects.some((d) => typeof d.uncertainty?.pe !== "number" || typeof d.uncertainty?.mi !== "number")) {
+    throw new Error("API response has a region without uncertainty.pe / uncertainty.mi");
+  }
   const { w, h } = film;
   const sx = w / (j.width || w), sy = h / (j.height || h);
   const labels = await pngChannel(j.mask_png, w, h, false);
-  const unit = async (b64?: string) => {
+  const unit = async (b64: string) => {
     const f = new Float32Array(w * h);
-    if (b64) { const u = await pngChannel(b64, w, h, true); for (let i = 0; i < f.length; i++) f[i] = u[i] / 255; }
+    const u = await pngChannel(b64, w, h, true);
+    for (let i = 0; i < f.length; i++) f[i] = u[i] / 255;
     return f;
   };
   return {
     classes: j.classes,
     labels,
-    maps: { pe: await unit(j.maps?.pe), mi: await unit(j.maps?.mi) },
+    maps: { pe: await unit(j.maps.pe), mi: await unit(j.maps.mi) },
     defects: j.defects.map((d) => ({
       cls: d.cls,
       prob: d.prob,
       suspect: d.prob < 0.5,
       bbox: [d.bbox[0] * sx, d.bbox[1] * sy, d.bbox[2] * sx, d.bbox[3] * sy].map(Math.round) as [number, number, number, number],
-      unc: { pe: d.uncertainty?.pe ?? 0, mi: d.uncertainty?.mi ?? 0 },
+      unc: { pe: d.uncertainty!.pe!, mi: d.uncertainty!.mi! },
     })),
     model: j.model,
     stub: j.stub,

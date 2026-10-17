@@ -8,6 +8,9 @@ uv run weldsight-serve --run runs/<run> --static frontend/dist
 from __future__ import annotations
 
 import argparse
+import io
+import sys
+import threading
 from pathlib import Path
 from typing import Annotated
 
@@ -15,13 +18,17 @@ import cv2
 import numpy as np
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from PIL import Image, UnidentifiedImageError
 
+from weldsight.data.sources import to_uint8
 from weldsight.serve.inference import LockedPredictor, Predictor
 from weldsight.serve.postprocess import build_response
 
 MAX_BYTES = 64 * 1024 * 1024
-MAX_PIXELS = 100_000_000
+MAX_PIXELS = 50_000_000
+MAX_INFLIGHT = 2  # decoded images held in memory at once (decode happens before the model lock)
 
 
 def create_app(
@@ -37,6 +44,15 @@ def create_app(
         allow_methods=["GET", "POST"],
         allow_headers=["*"],
     )
+
+    slots = threading.BoundedSemaphore(MAX_INFLIGHT)
+
+    @app.middleware("http")
+    async def limit_body(request, call_next):
+        # reject before the multipart parser spools the body to disk
+        if int(request.headers.get("content-length") or 0) > MAX_BYTES + 2**20:
+            return JSONResponse({"detail": f"body larger than {MAX_BYTES // 2**20} MB"}, 413)
+        return await call_next(request)
 
     @app.get("/api/health")
     def health() -> dict:
@@ -57,14 +73,29 @@ def create_app(
         data = image.file.read(MAX_BYTES + 1)
         if len(data) > MAX_BYTES:
             raise HTTPException(413, f"image larger than {MAX_BYTES // 2**20} MB")
-        gray = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_GRAYSCALE)
-        if gray is None:
-            raise HTTPException(415, "cannot decode image (use png / jpg / tif)")
-        if gray.size > MAX_PIXELS:
+        try:  # dimensions from the header, before any raster is allocated
+            with Image.open(io.BytesIO(data)) as im:
+                w, h = im.size
+        except Image.DecompressionBombError:
+            raise HTTPException(413, "image dimensions too large") from None
+        except (UnidentifiedImageError, OSError):
+            raise HTTPException(415, "cannot decode image (use png / jpg / tif)") from None
+        if w * h > MAX_PIXELS:
             raise HTTPException(
-                413, f"image has {gray.size / 1e6:.0f} MP, limit is {MAX_PIXELS // 10**6} MP"
+                413, f"image has {w * h / 1e6:.0f} MP, limit is {MAX_PIXELS // 10**6} MP"
             )
-        out = build_response(pred.predict(gray, mc_samples), pred.classes, max_dim)
+        if not slots.acquire(timeout=30):
+            raise HTTPException(503, "server busy, try again")
+        try:
+            raw = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_UNCHANGED)
+            if raw is None:
+                raise HTTPException(415, "cannot decode image (use png / jpg / tif)")
+            gray = to_uint8(raw)  # same percentile windowing for 16-bit as in training data
+            del raw, data
+            result = pred.predict(gray, mc_samples)
+        finally:
+            slots.release()
+        out = build_response(result, pred.classes, max_dim)
         out.update(model=pred.name, stub=pred.stub, mc_samples=mc_samples)
         return out
 
@@ -92,6 +123,12 @@ def main() -> None:
     ap.add_argument("--static", help="directory with the built React app (frontend/dist)")
     ap.add_argument("--cors", nargs="*", help="allowed origins (default: the Vite dev server)")
     a = ap.parse_args()
+    if a.host not in ("127.0.0.1", "localhost", "::1"):
+        print(
+            f"WARNING: listening on {a.host} with no authentication. Anyone who can reach this port "
+            "can run inference. Put it behind an authenticated proxy.",
+            file=sys.stderr,
+        )
 
     if a.stub:
         from weldsight.serve.inference import StubPredictor

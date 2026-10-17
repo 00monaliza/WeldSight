@@ -55,7 +55,9 @@ def test_postprocess_components_and_resize():
     assert d[1]["prob"] > 0.9 and d[0]["prob"] < 0.5
     assert d[1]["bbox"] == [30, 20, 10, 5]  # scaled by 0.5
     mask = _decode(res["mask_png"])
-    assert mask.shape == (50, 100) and set(np.unique(mask)) == {0, 2}  # weak region is not painted
+    assert mask.shape == (50, 100) and set(np.unique(mask)) == {0, 2}
+    assert not mask[35:38, 75:78].any()  # weak region (resized bbox) is not painted
+    assert (mask[20:25, 30:40] == 2).all()  # the confident crack is
     assert _decode(res["maps"]["pe"]).max() == round(0.9 * 255)
 
 
@@ -116,19 +118,23 @@ def test_torch_predictor_end_to_end(tmp_path):
             "in_channels": 1,
         },
         "data": {"source": "swrd", "class_names": CLASSES, "patch_size": 64},
-        "train": {"normalize": "per_patch", "device": "cpu"},
+        "train": {"normalize": "per_patch", "device": "cuda"},  # trained on a GPU box
     }
     (tmp_path / "config.yaml").write_text(yaml.safe_dump(cfg))
     torch.save(
         {"model": build_model(cfg, len(CLASSES)).state_dict(), "epoch": 3}, tmp_path / "best.pt"
     )
 
-    pred = TorchPredictor(tmp_path, device="cpu", batch_size=2)
+    pred = TorchPredictor(tmp_path, device="auto", batch_size=2)  # must not reuse "cuda"
     img = _film(100, 150)  # not a multiple of 64: exercises shifted last tiles
     out = pred.predict(img, 3)
     assert out.probs.shape == (3, 100, 150) and out.pe.shape == (100, 150)
     assert np.allclose(out.probs.sum(0), 1, atol=1e-4)
     assert 0 <= out.pe.min() and out.pe.max() <= 1 and out.mi.max() <= 1
+    assert out.mi.max() > 0  # dropout samples disagree, i.e. MC is actually active
+    assert (out.mi <= out.pe * 4 + 1e-6).all()  # mi <= pe, then x4 display gain
+    one_pass = pred.predict(img, 2)
+    assert not np.allclose(one_pass.mi, out.mi)  # different dropout draws -> different maps
     small = pred.predict(img[:40, :50], 2)  # smaller than one tile
     assert small.probs.shape == (3, 40, 50)
 
@@ -152,3 +158,45 @@ def test_riawelc_run_is_refused(tmp_path):
     (tmp_path / "config.yaml").write_text(yaml.safe_dump(cfg))
     with pytest.raises(ValueError, match="untrained"):
         TorchPredictor(tmp_path)
+
+
+def test_torch_predictor_refuses_class_order_mismatch(tmp_path):
+    torch = pytest.importorskip("torch")
+    from weldsight.models.unet import build_model
+    from weldsight.serve.inference import TorchPredictor
+
+    cfg = {
+        "model": {"arch": "unet", "encoder_name": "resnet18", "encoder_weights": None},
+        "data": {"source": "swrd", "class_names": CLASSES, "patch_size": 64},
+        "train": {},
+    }
+    (tmp_path / "config.yaml").write_text(yaml.safe_dump(cfg))
+    state = build_model(cfg, len(CLASSES)).state_dict()
+    torch.save({"model": state, "classes": CLASSES[::-1], "epoch": 1}, tmp_path / "best.pt")
+    with pytest.raises(ValueError, match="mislabel"):
+        TorchPredictor(tmp_path, device="cpu")
+    torch.save({"model": state, "classes": CLASSES, "epoch": 1}, tmp_path / "best.pt")
+    TorchPredictor(tmp_path, device="cpu")  # same order loads
+
+
+def test_16bit_upload_uses_percentile_window(client):
+    img16 = (_film().astype(np.uint16) * 200 + 1000).astype(np.uint16)  # 8-bit range would clip
+    r = client.post(
+        "/api/predict",
+        files={"image": ("f.png", _png(img16), "image/png")},
+        data={"mc_samples": "2"},
+    )
+    assert r.status_code == 200 and r.json()["defects"], (
+        "windowed 16-bit film should still show the blob"
+    )
+
+
+def test_limits(client, monkeypatch):
+    from weldsight.serve import app as app_mod
+
+    monkeypatch.setattr(app_mod, "MAX_PIXELS", 1000)
+    r = client.post("/api/predict", files={"image": ("f.png", _png(_film()), "image/png")})
+    assert r.status_code == 413
+    monkeypatch.setattr(app_mod, "MAX_BYTES", 10)
+    r = client.post("/api/predict", files={"image": ("f.png", _png(_film()), "image/png")})
+    assert r.status_code == 413  # rejected by Content-Length before the body is parsed

@@ -21,6 +21,7 @@ export function useInspector() {
   const [active, setActive] = useState(-1);
   const [health, setHealth] = useState<{ ok: true; info: Health } | { ok: false; error: string } | null>(null);
   const filmRef = useRef<Film | null>(null);
+  const loadSeq = useRef(0);
 
   const patch = useCallback((p: Partial<Settings>) => setSettings((s) => ({ ...s, ...p })), []);
 
@@ -29,9 +30,18 @@ export function useInspector() {
   }, []);
   const loadFile = useCallback(async (file: File) => {
     if (!file.type.startsWith("image/")) return;
-    try { setNewFilm(await filmFromFile(file)); } catch (e) { setError((e as Error).message); }
+    const seq = ++loadSeq.current;  // a slower, earlier load must not replace a later selection
+    try {
+      const f = await filmFromFile(file);
+      if (seq === loadSeq.current) setNewFilm(f);
+    } catch (e) {
+      if (seq === loadSeq.current) setError((e as Error).message);
+    }
   }, [setNewFilm]);
-  const loadSample = useCallback(() => setNewFilm(filmFromSource(makeSample(), "synthetic_sample.png")), [setNewFilm]);
+  const loadSample = useCallback(() => {
+    loadSeq.current++;
+    setNewFilm(filmFromSource(makeSample(), "synthetic_sample.png"));
+  }, [setNewFilm]);
 
   // (re)analyse when the film, the engine or the number of MC passes changes
   const { engine, mc, apiUrl } = settings;
@@ -47,7 +57,7 @@ export function useInspector() {
         let res: AnalysisResult;
         if (engine === "api") res = await runApi(film, apiUrl, mc, ac.signal);
         else { await nextFrame(); res = runDemo(film.gray, film.w, film.h, mc); }
-        if (alive) { setResult(res); setActive(-1); }
+        if (alive) { setResult({ ...res, engine, mc }); setActive(-1); }
       } catch (e) {
         if (alive && (e as Error).name !== "AbortError") { setResult(null); setError((e as Error).message); }
       } finally {
@@ -59,7 +69,8 @@ export function useInspector() {
 
   // server status for the header chip and the banner
   useEffect(() => {
-    if (engine !== "api") { setHealth(null); return; }
+    setHealth(null);  // never show the previous endpoint's status while the new one is unknown
+    if (engine !== "api") return;
     const ac = new AbortController();
     const t = setTimeout(() => {
       fetchHealth(apiUrl, ac.signal).then((info) => setHealth({ ok: true, info }), (e) => { if (e.name !== "AbortError") setHealth({ ok: false, error: String(e.message ?? e) }); });

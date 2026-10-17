@@ -19,6 +19,9 @@ export interface AnalysisResult {
   defects: Defect[];
   model?: string;
   stub?: boolean;
+  /** settings this result was computed with (exports must not mix them with newer settings) */
+  engine?: EngineKind;
+  mc?: number;
 }
 
 export interface Film {

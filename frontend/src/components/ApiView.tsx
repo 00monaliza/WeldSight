@@ -1,7 +1,8 @@
 const REQUEST = `POST /api/predict
 Content-Type: multipart/form-data
 
-image        file    radiograph (png / jpg / tif), any size up to 100 MP
+image        file    radiograph (png / jpg / tif), up to 64 MB and 50 MP;
+                     16-bit is windowed by percentiles like the training data
 mc_samples   int     MC Dropout passes T (2–30, default 10)
 max_dim      int     longest side of the returned maps (64–4096, default 1024)
 
@@ -64,7 +65,9 @@ uv run weldsight-serve --run runs/<run_dir> --static frontend/dist`}</code></pre
         <ul className="notes">
           <li>Class index 0 is background, defects are 1..K in the order of <code>classes</code> (same convention as <code>data/sources.py</code>).</li>
           <li>A region is a <b>detection</b> when its mean foreground probability is ≥ 0.5. Weaker regions (≥ 0.2 pixelwise) come back as <b>suspects</b>, so an uncertain miss can still be referred.</li>
-          <li>The page ranks a film by the <b>maximum</b> region uncertainty, matching the radiograph score used for the referral curve.</li>
+          <li>The page ranks a film by the <b>maximum</b> region uncertainty. This is analogous to, <b>not identical</b> to, the radiograph score of the Stage 1 referral curve (max over patches of each patch&apos;s top-1 % pixel score), so thresholds and rankings are not comparable with that curve.</li>
+          <li>The page decodes the film in the browser, so it needs PNG or JPEG. TIFF works when calling the API directly.</li>
+          <li>There is no authentication. The server binds to loopback by default; put it behind an authenticated proxy before exposing it.</li>
           <li>A run trained on RIAWELC is refused at start-up: it has patch labels only, so its segmentation decoder is untrained.</li>
           <li>Thresholds on <code>pe</code>/<code>mi</code> are not calibrated. Choose them on the validation split, not by looking at test films.</li>
         </ul>

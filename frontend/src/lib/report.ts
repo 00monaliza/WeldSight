@@ -18,7 +18,7 @@ export async function savePng(film: Film, res: AnalysisResult, s: Settings) {
 export function saveJson(film: Film, res: AnalysisResult, s: Settings) {
   const d = decide(res, s.score, s.thr);
   const report = {
-    film: film.name, width: film.w, height: film.h, engine: s.engine, model: res.model, mc_samples: s.mc,
+    film: film.name, width: film.w, height: film.h, engine: res.engine ?? s.engine, model: res.model, mc_samples: res.mc ?? s.mc,
     uncertainty_score: s.score, refer_threshold: s.thr, film_uncertainty: "score" in d ? +d.score.toFixed(4) : 0,
     decision: decisionLabel(d),
     note: res.stub ? "Produced by a heuristic stand-in, not the trained model." : undefined,
