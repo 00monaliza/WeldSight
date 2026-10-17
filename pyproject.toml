@@ -20,12 +20,14 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0", "ruff>=0.4", "nbformat>=5.9", "nbconvert>=7.0", "ipykernel>=6.29"]
+serve = ["fastapi>=0.110", "uvicorn[standard]>=0.29", "python-multipart>=0.0.9"]
+dev = ["httpx>=0.27", "pytest>=8.0", "ruff>=0.4", "nbformat>=5.9", "nbconvert>=7.0", "ipykernel>=6.29"]
 
 [project.scripts]
 weldsight-prepare = "weldsight.data.prepare:main"
 weldsight-train = "weldsight.train.train:main"
 weldsight-eval = "weldsight.eval.evaluate:main"
+weldsight-serve = "weldsight.serve.app:main"
 weldsight-remote-subset = "weldsight.data.remote_subset:main"
 
 [build-system]
