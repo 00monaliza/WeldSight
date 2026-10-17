@@ -63,6 +63,23 @@ SWRD / GDXray: download manually (links in `configs/data/*.yaml`) into `data/raw
 `data/raw/gdxray`, check the labels with `weldsight-prepare --config ... --inspect`, then use
 `configs/experiment/swrd_baseline.yaml` or `gdxray_baseline.yaml`.
 
+## Web interface
+
+A dependency-free frontend lives in [`web/`](web/) (no build step):
+
+```bash
+python -m http.server -d web 8080      # then open http://localhost:8080
+```
+
+- **Inspect**: drop a radiograph, get the defect overlay, an uncertainty heat-map (predictive entropy or
+  mutual information), per-defect probabilities and a "send to inspector" decision with an adjustable threshold.
+- **Stage 1 results**: the RIAWELC baseline numbers from this README (recall with CIs, referral curve, uncertainty-score AUROC).
+- **API**: the `/predict` contract the page speaks in "WeldSight API" mode.
+
+No inference server or trained checkpoint is committed yet, so the page ships with a **demo engine**
+(blur-difference heuristic in the browser). It exists to exercise the UI and says so on screen; its output
+is not a WeldSight result.
+
 ## Reproducibility
 
 - Every setting lives in YAML (`configs/`, with `_base_` inheritance) and can be overridden with `key=value`.

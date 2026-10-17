@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WeldSight</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%276%27 fill=%27%23080909%27/%3E%3Cpath d=%27M3 17h7l3-7 4 14 3-7h9%27 fill=%27none%27 stroke=%27%23ffb347%27 stroke-width=%272.4%27 stroke-linejoin=%27round%27/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="top">
+  <a class="brand" href="#inspect" aria-label="WeldSight">
+    <svg viewBox="0 0 32 32" width="26" height="26" aria-hidden="true">
+      <circle cx="16" cy="16" r="14" fill="none" stroke="currentColor" stroke-width="1.5"/>
+      <path d="M2 16h8l3-7 4 14 3-7h10" fill="none" stroke="var(--amber)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+    </svg>
+    <span>WELD<b>SIGHT</b></span>
+  </a>
+  <nav class="tabs" role="tablist">
+    <a href="#inspect" data-tab="inspect" role="tab">Inspect</a>
+    <a href="#results" data-tab="results" role="tab">Stage 1 results</a>
+    <a href="#api" data-tab="api" role="tab">API</a>
+  </nav>
+  <div class="engine-chip" id="engineChip"><i></i><span>Demo engine</span></div>
+</header>
+
+<main>
+
+<!-- ============================== INSPECT ============================== -->
+<section id="view-inspect" class="view">
+  <div class="demo-banner" id="demoBanner">
+    <b>Demo engine.</b> A simple blur-difference detector runs in your browser to exercise the interface.
+    It is <u>not</u> the trained WeldSight model, and its detections mean nothing about real weld quality.
+    Switch to the API engine once a model is served.
+  </div>
+
+  <div class="inspect-grid">
+    <div class="stage-col">
+      <div class="film" id="film">
+        <span class="tick tl"></span><span class="tick tr"></span><span class="tick bl"></span><span class="tick br"></span>
+        <div class="canvas-wrap" id="canvasWrap" hidden>
+          <canvas id="cBase"></canvas>
+          <canvas id="cOver"></canvas>
+          <canvas id="cHi"></canvas>
+          <div class="scan" id="scan" hidden></div>
+        </div>
+        <div class="empty" id="empty">
+          <div class="empty-inner">
+            <h1>Radiograph<br>in, decision out.</h1>
+            <p>Drop a weld radiograph here. WeldSight segments defects, estimates how sure it is, and
+               tells you which films a human should look at.</p>
+            <div class="empty-actions">
+              <label class="btn primary">Choose image<input type="file" id="file" accept="image/*" hidden></label>
+              <button class="btn" id="btnSample" type="button">Generate synthetic sample</button>
+            </div>
+            <small>Images stay in your browser in demo mode.</small>
+          </div>
+        </div>
+        <div class="drop-hint" id="dropHint">Release to inspect</div>
+      </div>
+
+      <div class="readout" id="readout" aria-live="off">
+        <span>x <b id="rx">—</b></span><span>y <b id="ry">—</b></span>
+        <span>class <b id="rc">—</b></span><span>uncertainty <b id="ru">—</b></span>
+        <span class="grow"></span>
+        <span id="rsize">—</span>
+      </div>
+
+      <div class="toolbar">
+        <label class="toggle"><input type="checkbox" id="lSeg" checked><span>Defects</span></label>
+        <label class="toggle"><input type="checkbox" id="lUnc"><span>Uncertainty</span></label>
+        <label class="toggle"><input type="checkbox" id="lBox" checked><span>Boxes</span></label>
+        <label class="slider small"><span>Opacity</span><input type="range" id="opacity" min="0.15" max="1" step="0.05" value="0.6"></label>
+        <span class="grow"></span>
+        <button class="btn ghost" id="btnPng" type="button" disabled>Save overlay PNG</button>
+        <button class="btn ghost" id="btnJson" type="button" disabled>Save report JSON</button>
+        <label class="btn ghost">Open another<input type="file" id="file2" accept="image/*" hidden></label>
+      </div>
+    </div>
+
+    <aside class="panel">
+      <div class="verdict" id="verdict" data-state="idle">
+        <div class="verdict-label">Decision</div>
+        <div class="verdict-main" id="vMain">Waiting for a film</div>
+        <div class="verdict-sub" id="vSub">Load an image to get a recommendation.</div>
+        <div class="meter" id="meter" hidden>
+          <div class="meter-fill" id="meterFill"></div>
+          <div class="meter-thr" id="meterThr"></div>
+        </div>
+        <div class="meter-cap" id="meterCap" hidden><span>film uncertainty <b id="mVal">0.00</b></span><span>threshold <b id="mThr">0.55</b></span></div>
+      </div>
+
+      <details class="group" open>
+        <summary>Settings</summary>
+        <div class="fields">
+          <label class="field"><span>Engine</span>
+            <select id="engine">
+              <option value="demo">Demo (browser, simulated)</option>
+              <option value="api">WeldSight API</option>
+            </select>
+          </label>
+          <label class="field" id="apiRow" hidden><span>API URL</span>
+            <input type="text" id="apiUrl" value="http://localhost:8000" spellcheck="false">
+          </label>
+          <label class="field"><span>Uncertainty score</span>
+            <select id="score">
+              <option value="pe">Predictive entropy</option>
+              <option value="mi">Mutual information (BALD)</option>
+            </select>
+          </label>
+          <label class="field range"><span>MC Dropout passes <b id="tVal">10</b></span>
+            <input type="range" id="mc" min="2" max="30" step="1" value="10">
+          </label>
+          <label class="field range"><span>Refer to inspector above <b id="thrVal">0.55</b></span>
+            <input type="range" id="thr" min="0.05" max="0.95" step="0.01" value="0.55">
+          </label>
+          <p class="note">On the RIAWELC baseline, predictive entropy flagged wrong patches (AUROC 0.82) far better than mutual information (0.54). See the results tab.</p>
+        </div>
+      </details>
+
+      <details class="group" open>
+        <summary>Findings <em id="findCount">0</em></summary>
+        <ul class="defects" id="defects"><li class="none">Nothing analysed yet.</li></ul>
+      </details>
+
+      <details class="group">
+        <summary>Classes</summary>
+        <ul class="legend" id="legend"></ul>
+      </details>
+    </aside>
+  </div>
+</section>
+
+<!-- ============================== RESULTS ============================== -->
+<section id="view-results" class="view" hidden>
+  <div class="results-head">
+    <p class="kicker">Stage 1 · RIAWELC specimen-level split · run <code>riawelc_cpu</code></p>
+    <h2>A pipeline check, not a verdict on the method.</h2>
+    <p class="lede">An offline CPU run: ResNet-18 <em>without</em> ImageNet weights, 8,000 patches per epoch, patch head only
+      (RIAWELC has no masks, so there is no IoU). Test split: 3,073 patches, 21 radiographs, 6 weld specimens.
+      Numbers below are copied from the repository README.</p>
+  </div>
+
+  <div class="cards4">
+    <article><h3>01</h3><p><b>No dataset has everything.</b> RIAWELC has no masks, GDXray has 10 films and one class. SWRD (6 classes, polygons) is the main dataset from here.</p></article>
+    <article><h3>02</h3><p><b>The published split leaks.</b> 108 of 109 radiographs sit in both train and test. Re-split by weld specimen (29 specimens).</p></article>
+    <article><h3>03</h3><p><b>A flatness shortcut.</b> Patch std alone separates defect from no-defect with AUROC 0.91.</p></article>
+    <article><h3>04</h3><p><b>Tiny effective sample.</b> Each test class occurs in only 2–4 specimens, so every recall carries a cluster-bootstrap CI.</p></article>
+  </div>
+
+  <div class="split">
+    <section class="block">
+      <h3>Per-class recall, test split</h3>
+      <div class="ci-table" id="ciTable"></div>
+      <p class="caption">Dot = recall, bar = 95 % cluster bootstrap CI over radiographs. Validation macro-F1 was 0.89 against 0.61 on test:
+        specimen-to-specimen variance, not noise a single split can resolve.</p>
+    </section>
+
+    <section class="block">
+      <h3>Recall vs. share of films sent to an inspector</h3>
+      <svg id="refChart" viewBox="0 0 520 300" role="img" aria-label="Referral curve: model, random and oracle recall at 0, 10, 20 and 30 percent referral"></svg>
+      <div class="chart-legend">
+        <span><i class="l-model"></i>model (mutual information)</span>
+        <span><i class="l-rand"></i>random</span>
+        <span><i class="l-orc"></i>oracle</span>
+      </div>
+      <p class="caption">Upper bound: the inspector is assumed to find every defect on referred films. AUC 0.832 model, 0.801 random, 0.875 oracle.</p>
+    </section>
+  </div>
+
+  <section class="block wide">
+    <h3>Which uncertainty score flags wrong patches?</h3>
+    <div class="bars" id="aurocBars"></div>
+    <p class="caption">AUROC of uncertainty vs. “patch has an error”. The pre-registered score (mutual information) is the weakest. Most errors are consistent
+      uncertainty (aleatoric), not dropout disagreement. Changing the score based on this test observation would be test-set tuning; pick it on validation.</p>
+  </section>
+</section>
+
+<!-- ============================== API ============================== -->
+<section id="view-api" class="view" hidden>
+  <div class="results-head">
+    <p class="kicker">Integration</p>
+    <h2>One endpoint between this page and a model.</h2>
+    <p class="lede">The repository has no inference server yet, and no trained checkpoint is committed. This is the contract the frontend speaks in
+      “WeldSight API” mode. Implement it next to <code>mc_predict</code> in <code>src/weldsight/eval/uncertainty.py</code>.</p>
+  </div>
+
+  <div class="split">
+    <section class="block">
+      <h3>Request</h3>
+<pre><code>POST {API URL}/predict
+Content-Type: multipart/form-data
+
+image        file    radiograph (png / jpg / tif)
+mc_samples   int     MC Dropout passes T (2–30)</code></pre>
+      <h3>Response <small>application/json</small></h3>
+<pre><code>{
+  "width": 1024, "height": 384,
+  "classes": ["porosity", "inclusion", "crack",
+              "undercut", "lack_of_fusion",
+              "lack_of_penetration"],
+  "mask_png": "&lt;base64&gt;",      // R channel = class idx, 0 = background
+  "maps": {                     // R channel 0–255 → 0–1, same size
+    "pe": "&lt;base64 png&gt;",     // predictive entropy / ln 2
+    "mi": "&lt;base64 png&gt;"      // mutual information, scaled
+  },
+  "defects": [{
+    "cls": "crack",
+    "prob": 0.91,
+    "bbox": [x, y, w, h],
+    "uncertainty": { "pe": 0.18, "mi": 0.05 }
+  }]
+}</code></pre>
+    </section>
+    <section class="block">
+      <h3>Notes</h3>
+      <ul class="notes">
+        <li>Class index 0 is background, defects are 1..K in the order of <code>classes</code> (same convention as <code>data/sources.py</code>).</li>
+        <li>The page ranks a film by the <b>maximum</b> defect uncertainty, matching the radiograph score used for the referral curve.</li>
+        <li>Enable CORS for the page origin, or serve <code>web/</code> from the same FastAPI app via <code>StaticFiles</code>.</li>
+        <li>Pixel-level maps are not stored by <code>mc_predict</code> today (it keeps memory O(N)). The server needs to return them for the one image it is given.</li>
+        <li>Serve the page locally: <code>python -m http.server -d web 8080</code></li>
+      </ul>
+    </section>
+  </div>
+</section>
+
+</main>
+
+<footer class="foot">
+  WeldSight · Stage 1 research interface · weld-defect segmentation with uncertainty on real radiographs
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>
