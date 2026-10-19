@@ -14,6 +14,8 @@ unchanged, so polygon coordinates stay valid.
     uv run weldsight-remote-subset --zip local.zip ...          # same from a local zip
 
 The list of extracted images is written to `<out>/_subset.txt` (seeded, resumable).
+A later run keeps every image listed there, so a subset only grows (delete the file to
+start over). `--prefer-labels` takes all images with the given raw labels first.
 Members are fetched as byte ranges: neighbouring small files (annotations) share one
 request, and every request is retried with backoff, since Google Drive answers bursts of
 requests with occasional 5xx errors.
@@ -23,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import bisect
+import json
 import random
 import re
 import struct
@@ -154,7 +157,12 @@ def select_images(
     seed: int,
     include: str | None,
     annotated_stems: set[str],
+    prefer_stems: set[str] = frozenset(),
+    keep: list[str] = (),
 ) -> list[str]:
+    """Pick `max_images` images: first `keep` (an earlier subset, so a subset only
+    grows), then every image whose stem is in `prefer_stems` (e.g. rare classes), then
+    a seeded random sample of the rest. Without keep/prefer this is a plain sample."""
     imgs = [n for n in names if PurePosixPath(n).suffix.lower() in IMG_EXTS]
     if include:
         imgs = [n for n in imgs if re.search(include, n)]
@@ -165,8 +173,37 @@ def select_images(
         imgs = ann or imgs
     imgs = sorted(imgs)
     if max_images and len(imgs) > max_images:
-        imgs = sorted(random.Random(seed).sample(imgs, max_images))
+        pool = set(imgs)
+        chosen = [n for n in dict.fromkeys(keep) if n in pool]
+        taken = set(chosen)
+        chosen += [
+            n for n in imgs if PurePosixPath(n).stem.lower() in prefer_stems and n not in taken
+        ]
+        taken = set(chosen)
+        rest = [n for n in imgs if n not in taken]
+        k = min(len(rest), max_images - len(chosen))
+        if k > 0:
+            chosen += random.Random(seed).sample(rest, k)
+        if len(chosen) > max_images:
+            print(f"NOTE: {len(chosen)} images kept or preferred, more than --max-images")
+        imgs = sorted(chosen)
     return imgs
+
+
+def stems_with_labels(out: Path, anns: list[str], labels: set[str]) -> set[str]:
+    """Stems of LabelMe json files (already extracted under `out`) that contain any label."""
+    stems = set()
+    for n in anns:
+        if not n.lower().endswith(".json"):
+            continue
+        try:
+            d = json.loads((out / n).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        shapes = d.get("shapes", []) if isinstance(d, dict) else []
+        if any(str(s.get("label", "")).strip() in labels for s in shapes):
+            stems.add(PurePosixPath(n).stem.lower())
+    return stems
 
 
 def extract_subset(
@@ -176,6 +213,7 @@ def extract_subset(
     seed: int = 0,
     include: str | None = None,
     ann_include: str | None = None,
+    prefer_labels: set[str] | None = None,
 ) -> list[str]:
     out.mkdir(parents=True, exist_ok=True)
     by_name = {i.filename: i for i in zf.infolist() if not i.is_dir()}
@@ -191,8 +229,13 @@ def extract_subset(
             dst.write_bytes(data)
             bar.update()
     stems = {PurePosixPath(n).stem.lower() for n in anns if not n.lower().endswith(".txt")}
-    chosen = select_images(names, max_images, seed, include, stems)
-    (out / "_subset.txt").write_text("\n".join(chosen) + "\n")
+    prefer = stems_with_labels(out, anns, prefer_labels) if prefer_labels else set()
+    if prefer_labels:
+        print(f"{len(prefer)} annotation files contain {sorted(prefer_labels)}")
+    listing = out / "_subset.txt"
+    keep = listing.read_text().split() if listing.exists() else []
+    chosen = select_images(names, max_images, seed, include, stems, prefer, keep)
+    listing.write_text("\n".join(chosen) + "\n")
     todo = [by_name[n] for n in chosen if not (out / n).with_suffix(".png").exists()]
     with tqdm(total=len(chosen), initial=len(chosen) - len(todo), desc="images -> png") as bar:
         for info in todo:  # one request per image: they are large
@@ -256,8 +299,15 @@ def main(argv: list[str] | None = None) -> None:
         default=None,
         help="regex on annotation paths; keeps e.g. full-image labels away from crops",
     )
+    ap.add_argument(
+        "--prefer-labels",
+        default=None,
+        help="comma-separated raw labels: take every image annotated with one of them "
+        "first (e.g. rare classes), then fill up to --max-images at random",
+    )
     ap.add_argument("--seed", type=int, default=0)
     args = ap.parse_args(argv)
+    prefer = {x.strip() for x in args.prefer_labels.split(",")} if args.prefer_labels else None
     with open_zip(args.url, args.zip) as zf:
         report = describe(zf)
         print(report)
@@ -268,7 +318,13 @@ def main(argv: list[str] | None = None) -> None:
         if args.list:
             return
         chosen = extract_subset(
-            zf, Path(args.out), args.max_images, args.seed, args.include, args.ann_include
+            zf,
+            Path(args.out),
+            args.max_images,
+            args.seed,
+            args.include,
+            args.ann_include,
+            prefer,
         )
         print(f"extracted {len(chosen)} images into {args.out}")
 

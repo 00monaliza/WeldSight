@@ -360,3 +360,28 @@ def test_remote_zip_quota_page_stops_without_retrying(tmp_path, fake_swrd, monke
     finally:
         server.shutdown()
     assert stats["get"] == 2  # one request, no retries
+
+
+def test_select_images_keeps_previous_subset_and_prefers_labels(tmp_path):
+    """Subset growth: images of an earlier run stay, rare-label images come first."""
+    import json
+    import zipfile
+
+    from weldsight.data.remote_subset import extract_subset
+
+    ok, tif = cv2.imencode(".tif", np.full((20, 30), 30000, np.uint16))
+    zpath = tmp_path / "a.zip"
+    with zipfile.ZipFile(zpath, "w") as z:
+        for i in range(40):
+            label = "咬边" if i in (3, 17, 29) else "气孔"
+            z.writestr(f"jsons/img_{i}.json", json.dumps({"shapes": [{"label": label}]}))
+            z.writestr(f"images/img_{i}.tif", tif.tobytes())
+    out = tmp_path / "out"
+    with zipfile.ZipFile(zpath) as z:
+        first = extract_subset(z, out, max_images=5, seed=0)
+        plain = extract_subset(z, tmp_path / "plain", max_images=5, seed=0)
+        grown = extract_subset(z, out, max_images=12, seed=1, prefer_labels={"咬边"})
+    assert first == plain  # no keep/prefer: same as a plain seeded sample
+    assert set(first) <= set(grown) and len(grown) == 12
+    assert {f"images/img_{i}.tif" for i in (3, 17, 29)} <= set(grown)
+    assert len(list(out.rglob("*.png"))) == 12
