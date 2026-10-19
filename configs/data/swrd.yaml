@@ -25,7 +25,9 @@ data:
       咬边: undercut
       未熔合: lack_of_fusion
       未焊透: lack_of_penetration
-    ignore_labels: [焊缝, 伪缺陷]  # weld bead region, pseudo-defect: not defects -> background
+    # weld bead region and pseudo-defects are not defects; 焊瘤 (overlap) is a defect outside
+    # the six classes, seen on 1 of 600 crops. All three are treated as background.
+    ignore_labels: [焊缝, 伪缺陷, 焊瘤]
   deduplicate: true
   patch_size: 256
   stride: {train: 128, val: 256, test: 256}   # overlap only inside train
