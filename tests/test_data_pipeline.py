@@ -201,11 +201,12 @@ def test_remote_subset_from_zip(tmp_path, fake_swrd):
 
 def _drive_like_server(data: bytes, fail_every: int = 0):
     """HTTP server that answers like Google Drive: HEAD says Content-Length 0, GET
-    serves byte ranges, and every `fail_every`-th GET fails with 500."""
+    serves byte ranges, every `fail_every`-th GET fails with 500, and once
+    `stats["quota"]` is set every answer is the HTML quota page."""
     import threading
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-    stats = {"get": 0, "failed": 0}
+    stats = {"get": 0, "failed": 0, "quota": False}
 
     class DriveLike(BaseHTTPRequestHandler):
         def do_HEAD(self):
@@ -215,6 +216,14 @@ def _drive_like_server(data: bytes, fail_every: int = 0):
 
         def do_GET(self):
             stats["get"] += 1
+            if stats["quota"]:
+                page = b"<html><title>Google Drive - Quota exceeded</title></html>"
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(page)))
+                self.end_headers()
+                self.wfile.write(page)
+                return
             if fail_every and stats["get"] % fail_every == 0:
                 stats["failed"] += 1
                 self.send_error(500)
@@ -330,3 +339,24 @@ def test_swrd_real_layout_labels_groups_and_ann_filter(tmp_path):
     assert {r.group_id for r in recs} == {"DJ-RT-20220810", "DJ-RT-20230101"}
     assert {c for r in recs for c in r.present_classes()} == {"porosity", "inclusion"}
     assert src.diag["ignored"] == {"焊缝": 6, "伪缺陷": 6}
+
+
+def test_remote_zip_quota_page_stops_without_retrying(tmp_path, fake_swrd, monkeypatch):
+    import zipfile
+
+    import weldsight.data.remote_subset as rs
+
+    monkeypatch.setattr(rs, "BACKOFF", 0.0)
+    zpath = tmp_path / "swrd.zip"
+    with zipfile.ZipFile(zpath, "w") as z:
+        for f in sorted(fake_swrd.iterdir()):
+            z.write(f, f"SWRD/{f.name}")
+    server, url, stats = _drive_like_server(zpath.read_bytes())
+    try:
+        z = rs.open_zip(url, None)
+        stats.update(get=1, quota=True)
+        with pytest.raises(rs.DownloadBlocked, match="Quota exceeded"):
+            rs.read_range(z, 0, 10)
+    finally:
+        server.shutdown()
+    assert stats["get"] == 2  # one request, no retries

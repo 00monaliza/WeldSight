@@ -53,6 +53,11 @@ BACKOFF = 2.0  # seconds, doubled after every failed attempt, capped at 60 s
 TRANSIENT = (OSError, RemoteZipError, zipfile.BadZipFile, zlib.error)
 
 
+class DownloadBlocked(RuntimeError):
+    """The server answered a range request with a page instead of file bytes (Google
+    Drive's quota page). Not retried: it lasts hours, not seconds."""
+
+
 def retry(fn: Callable, what: str):
     for attempt in range(RETRIES):
         try:
@@ -206,9 +211,27 @@ def extract_subset(
 def open_zip(url: str | None, path: str | None) -> zipfile.ZipFile:
     if path:
         return zipfile.ZipFile(path)
+    import requests
     from remotezip import RemoteFetcher, RemoteZip
 
     class RangeSizeFetcher(RemoteFetcher):
+        def _request(self, kwargs):
+            res = (self._session or requests).get(self._url, stream=True, **kwargs)
+            res.raise_for_status()
+            if "Content-Range" not in res.headers:
+                body = res.raw.read(4096, decode_content=True).decode("utf-8", "replace")
+                res.close()
+                title = re.search(r"<title>(.*?)</title>", body, re.S | re.I)
+                text = title.group(1).strip() if title else " ".join(body.split())[:200]
+                raise DownloadBlocked(
+                    f"server sent HTTP {res.status_code} "
+                    f"{res.headers.get('Content-Type')} instead of a byte range: {text!r}. "
+                    "Google Drive does this when the file's download quota is used up. "
+                    "Re-run later (finished files are skipped) or read the archive through "
+                    "a shortcut in your own Drive: --zip /content/drive/MyDrive/SWXD_Data.zip"
+                )
+            return res.raw, res.headers["Content-Range"]
+
         # Google Drive answers HEAD with Content-Length: 0, so remotezip's HEAD-based
         # size (used when suffix ranges are off) is 0. Read the total from Content-Range.
         def get_file_size(self) -> int:
