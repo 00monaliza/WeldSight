@@ -244,6 +244,8 @@ def inspect(cfg: dict) -> None:
             first = Path(str(diag["unparsed"][0]).split(": ")[0])
             if first.exists():
                 print("first unknown file starts with:", first.read_text(errors="replace")[:400])
+    if diag and diag.get("ignored"):
+        print("ignored labels (ignore_labels, treated as background):", dict(diag["ignored"]))
     labels = Counter(c for r in recs for c in r.present_classes())
     print(f"{len(recs)} records, {len({r.group_id for r in recs})} groups")
     print("label counts:", dict(labels))

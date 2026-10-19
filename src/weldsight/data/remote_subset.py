@@ -9,6 +9,8 @@ unchanged, so polygon coordinates stay valid.
 
     uv run weldsight-remote-subset --url URL --list            # contents only
     uv run weldsight-remote-subset --url URL --max-images 600  # subset
+    uv run weldsight-remote-subset --url URL --max-images 600 \
+        --include crop_weld_images/ --ann-include crop_weld_jsons/  # SWRD weld crops only
     uv run weldsight-remote-subset --zip local.zip ...          # same from a local zip
 
 The list of extracted images is written to `<out>/_subset.txt` (seeded, resumable).
@@ -76,10 +78,13 @@ def extract_subset(
     max_images: int | None = None,
     seed: int = 0,
     include: str | None = None,
+    ann_include: str | None = None,
 ) -> list[str]:
     out.mkdir(parents=True, exist_ok=True)
     names = [i.filename for i in zf.infolist() if not i.is_dir()]
     anns = [n for n in names if PurePosixPath(n).suffix.lower() in ANN_EXTS]
+    if ann_include:
+        anns = [n for n in anns if re.search(ann_include, n)]
     for n in tqdm(anns, desc="annotations"):
         dst = out / n
         if not dst.exists():
@@ -125,7 +130,12 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--out", default="data/raw/swrd")
     ap.add_argument("--list", action="store_true", help="only print the archive contents")
     ap.add_argument("--max-images", type=int, default=None)
-    ap.add_argument("--include", default=None, help="regex on member paths, e.g. 'T-joint'")
+    ap.add_argument("--include", default=None, help="regex on image paths, e.g. 'T-joint'")
+    ap.add_argument(
+        "--ann-include",
+        default=None,
+        help="regex on annotation paths; keeps e.g. full-image labels away from crops",
+    )
     ap.add_argument("--seed", type=int, default=0)
     args = ap.parse_args(argv)
     with open_zip(args.url, args.zip) as zf:
@@ -137,7 +147,9 @@ def main(argv: list[str] | None = None) -> None:
         )
         if args.list:
             return
-        chosen = extract_subset(zf, Path(args.out), args.max_images, args.seed, args.include)
+        chosen = extract_subset(
+            zf, Path(args.out), args.max_images, args.seed, args.include, args.ann_include
+        )
         print(f"extracted {len(chosen)} images into {args.out}")
 
 

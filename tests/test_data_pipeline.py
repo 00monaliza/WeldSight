@@ -220,7 +220,7 @@ def test_remote_zip_when_head_reports_zero_length(tmp_path, fake_swrd):
             self.end_headers()
 
         def do_GET(self):
-            spec = self.headers["Range"][len("bytes="):]
+            spec = self.headers["Range"][len("bytes=") :]
             lo, hi = spec.split("-")
             if not lo:  # suffix range: last N bytes
                 lo, hi = len(data) - int(hi), len(data) - 1
@@ -244,3 +244,45 @@ def test_remote_zip_when_head_reports_zero_length(tmp_path, fake_swrd):
     finally:
         server.shutdown()
     assert len(chosen) == 2 and len(list((tmp_path / "subset").rglob("*.png"))) == 2
+
+
+def test_swrd_real_layout_labels_groups_and_ann_filter(tmp_path):
+    """SWXD_Data.zip layout: A_/B_ crops of one film share a group, full-image json files
+    are not extracted next to the crops, and non-defect labels are dropped."""
+    import json
+    import zipfile
+
+    from weldsight.data.remote_subset import extract_subset
+    from weldsight.data.sources import SwrdSource
+
+    cfg = load_config(REPO / "configs/experiment/swrd_baseline.yaml")["data"]
+    sq = [[10, 10], [60, 10], [60, 60], [10, 60]]
+    shapes = [
+        {"label": "气孔", "shape_type": "polygon", "points": sq},
+        {"label": "夹钨", "shape_type": "polygon", "points": sq},
+        {"label": "焊缝", "shape_type": "polygon", "points": sq},
+        {"label": "伪缺陷", "shape_type": "polygon", "points": sq},
+    ]
+    ok, png = cv2.imencode(".tif", np.full((100, 200), 30000, np.uint16))
+    zpath = tmp_path / "swxd.zip"
+    with zipfile.ZipFile(zpath, "w") as z:
+        for film in ["DJ-RT-20220810-33", "DJ-RT-20220810-34", "DJ-RT-20230101-5"]:
+            z.writestr(f"Raw_data/images/{film}.tif", png.tobytes())
+            z.writestr(f"Raw_data/json/{film}.json", json.dumps({"shapes": []}))
+            for half in "AB":
+                z.writestr(f"crop_weld_data/crop_weld_images/L/1/{half}_{film}.tif", png.tobytes())
+                z.writestr(
+                    f"crop_weld_data/crop_weld_jsons/L/1/{half}_{film}.json",
+                    json.dumps({"shapes": shapes, "imagePath": f"{film}.tif"}),
+                )
+    out = tmp_path / "raw"
+    with zipfile.ZipFile(zpath) as z:
+        extract_subset(z, out, include="crop_weld_images/", ann_include="crop_weld_jsons/")
+    assert not (out / "Raw_data").exists()
+
+    src = SwrdSource(out, cfg["class_names"], **cfg["source_opts"])
+    recs = src.records()
+    assert len(recs) == 6 and not src.diag["unmatched"]
+    assert {r.group_id for r in recs} == {"DJ-RT-20220810", "DJ-RT-20230101"}
+    assert {c for r in recs for c in r.present_classes()} == {"porosity", "inclusion"}
+    assert src.diag["ignored"] == {"焊缝": 6, "伪缺陷": 6}

@@ -17,6 +17,7 @@ import hashlib
 import json
 import re
 import xml.etree.ElementTree as ET
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -231,6 +232,8 @@ class SwrdSource(Source):
 
     def records(self) -> list[Record]:
         label_map: dict = self.opts.get("label_map", {})
+        # non-defect regions annotated in the same files (weld bead, pseudo-defects)
+        ignore = set(self.opts.get("ignore_labels") or [])
         group_regex = self.opts.get("group_regex")  # e.g. "^(.*)_\\d+$" to merge crops
         # index every image in the tree by lower-case stem: annotation and image files
         # often live in different folders (images/, labels/, json/ ...)
@@ -243,6 +246,7 @@ class SwrdSource(Source):
             "annotation_files": 0,
             "unmatched": [],
             "unparsed": [],
+            "ignored": Counter(),
         }
 
         items: list[tuple[Path, list, bool]] = []  # (image, polygons, boxes_only)
@@ -272,7 +276,8 @@ class SwrdSource(Source):
         for img, polys, boxes_only in items:
             if img is None:
                 continue
-            polys = [(label_map.get(c, c), p) for c, p in polys]
+            self.diag["ignored"].update(c for c, _ in polys if c in ignore)
+            polys = [(label_map.get(c, c), p) for c, p in polys if c not in ignore]
             gid = img.stem
             if group_regex:
                 mm = re.match(group_regex, img.stem)
