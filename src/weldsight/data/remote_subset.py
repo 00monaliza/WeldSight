@@ -14,15 +14,23 @@ unchanged, so polygon coordinates stay valid.
     uv run weldsight-remote-subset --zip local.zip ...          # same from a local zip
 
 The list of extracted images is written to `<out>/_subset.txt` (seeded, resumable).
+Members are fetched as byte ranges: neighbouring small files (annotations) share one
+request, and every request is retried with backoff, since Google Drive answers bursts of
+requests with occasional 5xx errors.
 """
 
 from __future__ import annotations
 
 import argparse
+import bisect
 import random
 import re
+import struct
+import time
 import zipfile
+import zlib
 from collections import Counter
+from collections.abc import Callable, Iterator
 from pathlib import Path, PurePosixPath
 
 import cv2
@@ -31,8 +39,92 @@ from tqdm import tqdm
 
 from weldsight.data.sources import to_uint8
 
+try:
+    from remotezip import RemoteZipError
+except ImportError:  # pragma: no cover - remotezip is a dependency
+    RemoteZipError = OSError
+
 ANN_EXTS = {".json", ".xml", ".txt", ".csv", ".yaml", ".yml"}
 IMG_EXTS = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp"}
+MAX_BLOCK = 32 * 2**20  # bytes per range request when batching small members
+MAX_GAP = 2**20  # unwanted bytes we accept inside one batched request
+RETRIES = 8
+BACKOFF = 2.0  # seconds, doubled after every failed attempt, capped at 60 s
+TRANSIENT = (OSError, RemoteZipError, zipfile.BadZipFile, zlib.error)
+
+
+def retry(fn: Callable, what: str):
+    for attempt in range(RETRIES):
+        try:
+            return fn()
+        except TRANSIENT as e:
+            if attempt == RETRIES - 1:
+                raise RuntimeError(
+                    f"{what}: still failing after {RETRIES} attempts ({e}). "
+                    "Re-run the same command later: finished files are skipped."
+                ) from e
+            wait = min(60.0, BACKOFF * 2**attempt)
+            print(f"\n{what}: {e!s:.120} -> retry {attempt + 1}/{RETRIES - 1} in {wait:.0f} s")
+            time.sleep(wait)
+
+
+def read_range(zf: zipfile.ZipFile, lo: int, hi: int) -> bytes:
+    """Bytes lo..hi (inclusive) of the archive, as one stateless request."""
+    fetch = getattr(zf.fp, "_fetch_fun", None)  # RemoteZip: a fresh HTTP Range request
+    if fetch is not None:
+        data = fetch((lo, hi), stream=False).read(hi - lo + 1)
+    else:
+        zf.fp.seek(lo)
+        data = zf.fp.read(hi - lo + 1)
+    if len(data) != hi - lo + 1:
+        raise OSError(f"short read: {len(data)} of {hi - lo + 1} bytes")
+    return data
+
+
+def member_bytes(block: bytes, base: int, info: zipfile.ZipInfo) -> bytes:
+    """Decompress one member from a block of raw archive bytes starting at `base`."""
+    off = info.header_offset - base
+    if block[off : off + 4] != b"PK\x03\x04":
+        raise zipfile.BadZipFile(f"no local header for {info.filename}")
+    name_len, extra_len = struct.unpack("<HH", block[off + 26 : off + 30])
+    start = off + 30 + name_len + extra_len
+    comp = block[start : start + info.compress_size]
+    if len(comp) != info.compress_size:
+        raise zipfile.BadZipFile(f"truncated data for {info.filename}")
+    dec = zipfile._get_decompressor(info.compress_type)  # None for stored members
+    data = dec.decompress(comp) if dec else comp
+    if zlib.crc32(data) != info.CRC:
+        raise zipfile.BadZipFile(f"CRC mismatch for {info.filename}")
+    return data
+
+
+def read_members(
+    zf: zipfile.ZipFile, infos: list[zipfile.ZipInfo]
+) -> Iterator[tuple[zipfile.ZipInfo, bytes]]:
+    """Yield (info, data), batching members that sit next to each other in the archive."""
+    offsets = sorted(i.header_offset for i in zf.infolist()) + [zf.start_dir]
+
+    def end_of(info: zipfile.ZipInfo) -> int:  # offset of the next member
+        return offsets[bisect.bisect_right(offsets, info.header_offset)]
+
+    blocks: list[list[zipfile.ZipInfo]] = []
+    for info in sorted(infos, key=lambda i: i.header_offset):
+        if blocks:
+            first, last = blocks[-1][0], blocks[-1][-1]
+            near = info.header_offset - end_of(last) <= MAX_GAP
+            if near and end_of(info) - first.header_offset <= MAX_BLOCK:
+                blocks[-1].append(info)
+                continue
+        blocks.append([info])
+    for blk in blocks:
+        lo, hi = blk[0].header_offset, end_of(blk[-1]) - 1
+
+        def fetch(lo=lo, hi=hi, blk=blk):
+            raw = read_range(zf, lo, hi)
+            return [(i, member_bytes(raw, lo, i)) for i in blk]
+
+        what = blk[0].filename if len(blk) == 1 else f"{len(blk)} files from {blk[0].filename}"
+        yield from retry(fetch, what)
 
 
 def describe(zf: zipfile.ZipFile) -> str:
@@ -81,28 +173,33 @@ def extract_subset(
     ann_include: str | None = None,
 ) -> list[str]:
     out.mkdir(parents=True, exist_ok=True)
-    names = [i.filename for i in zf.infolist() if not i.is_dir()]
+    by_name = {i.filename: i for i in zf.infolist() if not i.is_dir()}
+    names = list(by_name)
     anns = [n for n in names if PurePosixPath(n).suffix.lower() in ANN_EXTS]
     if ann_include:
         anns = [n for n in anns if re.search(ann_include, n)]
-    for n in tqdm(anns, desc="annotations"):
-        dst = out / n
-        if not dst.exists():
+    todo = [by_name[n] for n in anns if not (out / n).exists()]
+    with tqdm(total=len(anns), initial=len(anns) - len(todo), desc="annotations") as bar:
+        for info, data in read_members(zf, todo):
+            dst = out / info.filename
             dst.parent.mkdir(parents=True, exist_ok=True)
-            dst.write_bytes(zf.read(n))
+            dst.write_bytes(data)
+            bar.update()
     stems = {PurePosixPath(n).stem.lower() for n in anns if not n.lower().endswith(".txt")}
     chosen = select_images(names, max_images, seed, include, stems)
     (out / "_subset.txt").write_text("\n".join(chosen) + "\n")
-    for n in tqdm(chosen, desc="images -> 8-bit png"):
-        dst = (out / n).with_suffix(".png")
-        if dst.exists():
-            continue
-        img = cv2.imdecode(np.frombuffer(zf.read(n), np.uint8), cv2.IMREAD_UNCHANGED)
-        if img is None:
-            print(f"WARNING: cannot decode {n}")
-            continue
-        dst.parent.mkdir(parents=True, exist_ok=True)
-        cv2.imwrite(str(dst), to_uint8(img), [cv2.IMWRITE_PNG_COMPRESSION, 6])
+    todo = [by_name[n] for n in chosen if not (out / n).with_suffix(".png").exists()]
+    with tqdm(total=len(chosen), initial=len(chosen) - len(todo), desc="images -> png") as bar:
+        for info in todo:  # one request per image: they are large
+            ((_, data),) = read_members(zf, [info])
+            img = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_UNCHANGED)
+            bar.update()
+            if img is None:
+                print(f"WARNING: cannot decode {info.filename}")
+                continue
+            dst = (out / info.filename).with_suffix(".png")
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            cv2.imwrite(str(dst), to_uint8(img), [cv2.IMWRITE_PNG_COMPRESSION, 6])
     return chosen
 
 

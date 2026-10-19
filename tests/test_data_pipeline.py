@@ -199,19 +199,13 @@ def test_remote_subset_from_zip(tmp_path, fake_swrd):
     assert len(recs) == 4  # json in ann/, png in img/ -> matched by name
 
 
-def test_remote_zip_when_head_reports_zero_length(tmp_path, fake_swrd):
-    """Google Drive answers HEAD with Content-Length: 0; the size must come from Content-Range."""
+def _drive_like_server(data: bytes, fail_every: int = 0):
+    """HTTP server that answers like Google Drive: HEAD says Content-Length 0, GET
+    serves byte ranges, and every `fail_every`-th GET fails with 500."""
     import threading
-    import zipfile
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-    from weldsight.data.remote_subset import extract_subset, open_zip
-
-    zpath = tmp_path / "swrd.zip"
-    with zipfile.ZipFile(zpath, "w") as z:
-        for f in sorted(fake_swrd.iterdir()):
-            z.write(f, f"SWRD/{f.name}")
-    data = zpath.read_bytes()
+    stats = {"get": 0, "failed": 0}
 
     class DriveLike(BaseHTTPRequestHandler):
         def do_HEAD(self):
@@ -220,8 +214,12 @@ def test_remote_zip_when_head_reports_zero_length(tmp_path, fake_swrd):
             self.end_headers()
 
         def do_GET(self):
-            spec = self.headers["Range"][len("bytes=") :]
-            lo, hi = spec.split("-")
+            stats["get"] += 1
+            if fail_every and stats["get"] % fail_every == 0:
+                stats["failed"] += 1
+                self.send_error(500)
+                return
+            lo, hi = self.headers["Range"][len("bytes=") :].split("-")
             if not lo:  # suffix range: last N bytes
                 lo, hi = len(data) - int(hi), len(data) - 1
             else:
@@ -237,13 +235,59 @@ def test_remote_zip_when_head_reports_zero_length(tmp_path, fake_swrd):
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), DriveLike)
     threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server, f"http://127.0.0.1:{server.server_port}/swrd.zip", stats
+
+
+def test_remote_zip_when_head_reports_zero_length(tmp_path, fake_swrd):
+    """Google Drive answers HEAD with Content-Length: 0; the size must come from Content-Range."""
+    import zipfile
+
+    from weldsight.data.remote_subset import extract_subset, open_zip
+
+    zpath = tmp_path / "swrd.zip"
+    with zipfile.ZipFile(zpath, "w") as z:
+        for f in sorted(fake_swrd.iterdir()):
+            z.write(f, f"SWRD/{f.name}")
+    server, url, _ = _drive_like_server(zpath.read_bytes())
     try:
-        with open_zip(f"http://127.0.0.1:{server.server_port}/swrd.zip", None) as z:
+        with open_zip(url, None) as z:
             assert sorted(z.namelist()) == sorted(f"SWRD/{f.name}" for f in fake_swrd.iterdir())
             chosen = extract_subset(z, tmp_path / "subset", max_images=2, seed=0)
     finally:
         server.shutdown()
     assert len(chosen) == 2 and len(list((tmp_path / "subset").rglob("*.png"))) == 2
+
+
+def test_remote_zip_batches_annotations_and_retries_5xx(tmp_path, monkeypatch):
+    """Many small json files cost a few requests, and sporadic 500s are retried."""
+    import json
+    import zipfile
+
+    import weldsight.data.remote_subset as rs
+
+    monkeypatch.setattr(rs, "BACKOFF", 0.0)
+    # noise does not compress: the archive is far larger than remotezip's 64 KB first read
+    noise = np.random.default_rng(0).integers(0, 65535, (300, 400), dtype=np.uint16)
+    ok, tif = cv2.imencode(".tif", noise)
+    zpath = tmp_path / "swrd.zip"
+    with zipfile.ZipFile(zpath, "w", zipfile.ZIP_DEFLATED) as z:
+        for i in range(200):
+            z.writestr(f"jsons/img_{i}.json", json.dumps({"shapes": [], "i": i}))
+        for i in range(5):
+            z.writestr(f"images/img_{i}.tif", tif.tobytes())
+    server, url, stats = _drive_like_server(zpath.read_bytes(), fail_every=4)
+    try:
+        with rs.open_zip(url, None) as z:
+            stats["get"] = 0
+            chosen = rs.extract_subset(z, tmp_path / "out", max_images=3, seed=0)
+    finally:
+        server.shutdown()
+    out = tmp_path / "out"
+    assert len(list(out.rglob("*.json"))) == 200 and len(chosen) == 3
+    assert json.loads((out / "jsons/img_7.json").read_text())["i"] == 7
+    assert len(list(out.rglob("*.png"))) == 3
+    assert stats["failed"] > 0  # the failures happened and were survived
+    assert stats["get"] < 20  # 200 json + 3 images, not one request per json
 
 
 def test_swrd_real_layout_labels_groups_and_ann_filter(tmp_path):
