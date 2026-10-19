@@ -104,9 +104,17 @@ def extract_subset(
 def open_zip(url: str | None, path: str | None) -> zipfile.ZipFile:
     if path:
         return zipfile.ZipFile(path)
-    from remotezip import RemoteZip
+    from remotezip import RemoteFetcher, RemoteZip
 
-    return RemoteZip(url, support_suffix_range=False)
+    class RangeSizeFetcher(RemoteFetcher):
+        # Google Drive answers HEAD with Content-Length: 0, so remotezip's HEAD-based
+        # size (used when suffix ranges are off) is 0. Read the total from Content-Range.
+        def get_file_size(self) -> int:
+            raw, content_range = self._request(self.prepare_request((0, 0)))
+            raw.close()
+            return int(content_range.rsplit("/", 1)[1])
+
+    return RemoteZip(url, fetcher=RangeSizeFetcher, support_suffix_range=False, timeout=120)
 
 
 def main(argv: list[str] | None = None) -> None:

@@ -197,3 +197,50 @@ def test_remote_subset_from_zip(tmp_path, fake_swrd):
     assert len(pngs) == 4 and cv2.imread(str(pngs[0]), cv2.IMREAD_UNCHANGED).dtype == np.uint8
     recs = SwrdSource(out, ["porosity", "crack"]).records()
     assert len(recs) == 4  # json in ann/, png in img/ -> matched by name
+
+
+def test_remote_zip_when_head_reports_zero_length(tmp_path, fake_swrd):
+    """Google Drive answers HEAD with Content-Length: 0; the size must come from Content-Range."""
+    import threading
+    import zipfile
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    from weldsight.data.remote_subset import extract_subset, open_zip
+
+    zpath = tmp_path / "swrd.zip"
+    with zipfile.ZipFile(zpath, "w") as z:
+        for f in sorted(fake_swrd.iterdir()):
+            z.write(f, f"SWRD/{f.name}")
+    data = zpath.read_bytes()
+
+    class DriveLike(BaseHTTPRequestHandler):
+        def do_HEAD(self):
+            self.send_response(200)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
+        def do_GET(self):
+            spec = self.headers["Range"][len("bytes="):]
+            lo, hi = spec.split("-")
+            if not lo:  # suffix range: last N bytes
+                lo, hi = len(data) - int(hi), len(data) - 1
+            else:
+                lo, hi = int(lo), min(int(hi) if hi else len(data) - 1, len(data) - 1)
+            self.send_response(206)
+            self.send_header("Content-Range", f"bytes {lo}-{hi}/{len(data)}")
+            self.send_header("Content-Length", str(hi - lo + 1))
+            self.end_headers()
+            self.wfile.write(data[lo : hi + 1])
+
+        def log_message(self, *args):
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), DriveLike)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        with open_zip(f"http://127.0.0.1:{server.server_port}/swrd.zip", None) as z:
+            assert sorted(z.namelist()) == sorted(f"SWRD/{f.name}" for f in fake_swrd.iterdir())
+            chosen = extract_subset(z, tmp_path / "subset", max_images=2, seed=0)
+    finally:
+        server.shutdown()
+    assert len(chosen) == 2 and len(list((tmp_path / "subset").rglob("*.png"))) == 2
