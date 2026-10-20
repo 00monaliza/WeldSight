@@ -138,6 +138,11 @@ def test_prepare_swrd_masks(fake_swrd, tmp_path):
             assert row[f"px_{c}"] == (m == k).sum()
             assert row[f"cls_{c}"] == int((m == k).sum() >= cfg["data"]["min_defect_pixels"])
     assert df["cls_porosity"].sum() > 0 and df["cls_crack"].sum() > 0
+    for s, per_class in card["groups_with_class_per_split"].items():
+        part = df[df.split == s]
+        for c, n in per_class.items():
+            assert n == part.loc[part[f"cls_{c}"] > 0, "group_id"].nunique()
+            assert n <= card["radiographs_with_class_per_split"][s][c]
 
 
 def test_swrd_coco_layout_in_separate_folders(tmp_path):

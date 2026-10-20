@@ -201,6 +201,21 @@ def prepare(cfg: dict) -> Path:
             s: {c: int(df.loc[df.split == s, f"cls_{c}"].sum()) for c in classes}
             for s in ("train", "val", "test")
         },
+        # the effective sample size for per-class CIs is the number of groups, not patches
+        "groups_with_class_per_split": {
+            s: {
+                c: int(df.loc[(df.split == s) & (df[f"cls_{c}"] > 0), "group_id"].nunique())
+                for c in classes
+            }
+            for s in ("train", "val", "test")
+        },
+        "radiographs_with_class_per_split": {
+            s: {
+                c: int(df.loc[(df.split == s) & (df[f"cls_{c}"] > 0), "radiograph_id"].nunique())
+                for c in classes
+            }
+            for s in ("train", "val", "test")
+        },
         "data_version": file_sha256(manifest)[:16],
         "prepare_config": dcfg,
         "seed": cfg.get("seed", 0),
@@ -210,6 +225,8 @@ def prepare(cfg: dict) -> Path:
     write_json(card, out / "dataset_card.json")
     print(f"[prepare] wrote {len(df)} patches, data_version={card['data_version']}")
     print(pd.crosstab(df["split"], [df[f"cls_{c}"] for c in classes]).to_string())
+    print("[prepare] groups containing each class (CI width depends on these, not on patches):")
+    print(pd.DataFrame(card["groups_with_class_per_split"]).T.to_string())
     return out
 
 
