@@ -1,0 +1,22 @@
+{
+  "seed": 42,
+  "data_version": "2c33eedecb1697b9",
+  "dataset": "riawelc_v1",
+  "git": {
+    "commit": "594a24ee1081d3cf35b76709a07942c9d23615ec",
+    "branch": "claude/optimistic-tesla-ax3s08",
+    "dirty": false
+  },
+  "env": {
+    "python": "3.11.17",
+    "platform": "Linux-6.18.44-fc-v180-x86_64-with-glibc2.39",
+    "torch": "2.14.0+cu130",
+    "smp": "0.5.0",
+    "numpy": "2.4.6",
+    "cuda": "13.0",
+    "gpu": null
+  },
+  "device": "cpu",
+  "with_seg": false,
+  "started": "2026-10-28 09:31:37"
+}

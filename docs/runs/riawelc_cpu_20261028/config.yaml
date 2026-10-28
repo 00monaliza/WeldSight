@@ -1,0 +1,75 @@
+seed: 42
+output_dir: runs
+model:
+  arch: unet
+  encoder_name: resnet18
+  encoder_weights: null
+  in_channels: 1
+  decoder_dropout: 0.2
+  bottleneck_dropout: 0.2
+  cls_dropout: 0.3
+loss:
+  seg_dice_weight: 1.0
+  seg_focal_weight: 1.0
+  focal_gamma: 2.0
+  cls_weight: 1.0
+  cls_focal_gamma: 2.0
+train:
+  epochs: 10
+  batch_size: 32
+  lr: 0.0003
+  weight_decay: 0.0001
+  num_workers: 2
+  amp: true
+  grad_clip: 1.0
+  monitor: val/macro_f1
+  patience: 4
+  subset:
+    train: 8000
+    val: null
+  max_steps_per_epoch: null
+  balanced_sampler: false
+  augment:
+    hflip: 0.5
+    vflip: 0.5
+    brightness: 0.1
+    contrast: 0.1
+    gamma: 0.1
+    noise: 0.0
+  normalize: per_patch
+  device: auto
+  deterministic: true
+eval:
+  threshold: 0.5
+  mc_samples: 10
+  uncertainty: mutual_information
+  uncertainty_source: auto
+  radiograph_agg: max
+  batch_size: 64
+data:
+  name: riawelc_v1
+  source: riawelc
+  url: https://github.com/stefyste/RIAWELC
+  license: 'No explicit license; README: ''released freely'', cite Totino et al. 2022
+    and Perri et al. 2023'
+  citation: 'Totino B., Spagnolo F., Perri S. RIAWELC: A Novel Dataset of Radiographic
+    Images for Automatic Weld Defects Classification. ICMECE 2022.'
+  raw_dir: data/raw/riawelc
+  processed_dir: data/processed/riawelc_v1
+  class_names:
+  - crack
+  - porosity
+  - lack_of_penetration
+  source_opts:
+    group_by: specimen
+  deduplicate: true
+  patch_size: 256
+  fit_mode: resize
+  split:
+    fractions:
+    - 0.7
+    - 0.15
+    - 0.15
+    seed: 0
+    n_trials: 20000
+experiment: riawelc_cpu
