@@ -11,6 +11,11 @@ data:
   raw_dir: data/raw/swrd
   processed_dir: data/processed/swrd_v1
   class_names: [porosity, inclusion, crack, undercut, lack_of_fusion, lack_of_penetration]
+  # Pre-registered before any arm is run (ROADMAP protocol): the three classes present in the
+  # fewest train groups of subset v1, data_version aa609714f665f727. Train groups per class:
+  # undercut 27, lack_of_penetration 34, crack 38 | lack_of_fusion 40, inclusion 51, porosity 59.
+  # lack_of_fusion is a near tie with crack; it is reported, but not a primary endpoint.
+  rare_classes: [undercut, lack_of_penetration, crack]
   source_opts:
     # SWXD_Data.zip: crop_weld_data/crop_weld_images/{L,T}/{1,2}/{A,B}_DJ-RT-<YYYYMMDD>-<n>.tif
     # (A/B = two weld crops of one film; Raw_data/ holds the same films uncropped).
