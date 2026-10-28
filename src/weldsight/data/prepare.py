@@ -42,7 +42,7 @@ def download_riawelc(raw_dir: Path, url: str) -> None:
     repo = raw_dir / "_repo"
     if not repo.exists():
         subprocess.run(["git", "clone", "--depth", "1", url, str(repo)], check=True)
-    part1 = next(repo.rglob("*part01.rar"))
+    part1 = next(repo.rglob("*part01.rar")).resolve()  # unrar runs with cwd=raw_dir
     for tool in (["unrar", "x", "-o+", "-inul"], ["7zz", "x", "-y"], ["unar", "-f"]):
         if shutil.which(tool[0]):
             cmd = [*tool, str(part1)]
