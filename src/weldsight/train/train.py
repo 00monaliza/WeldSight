@@ -1,16 +1,25 @@
 """Train the baseline U-Net.
 
     uv run weldsight-train --config configs/experiment/riawelc_baseline.yaml [key=value ...]
+    uv run weldsight-train --resume runs/<run_dir>   # continue after a disconnect
 
 Everything needed to reproduce the run is stored in runs/<experiment>_<timestamp>/:
 config.yaml (fully resolved), provenance.json (git commit, data version, seed,
-library versions, hardware), history.csv, best.pt, and test metrics.
+library versions, hardware), history.csv, best.pt, and test metrics. last.pt holds the
+optimizer, scheduler and RNG state after every epoch, so `--resume` continues a run that a
+Colab disconnect cut off. A resumed run sees the same data order (the sampler's generator
+is restored) but DataLoader workers get new seeds, so augmentation differs from an
+uninterrupted run; provenance.json lists every resume.
+
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import math
+import os
+import random
 import time
 from pathlib import Path
 
@@ -117,12 +126,50 @@ def validate(model, loader, loss_fn, device, classes, with_seg, threshold) -> di
     return out
 
 
-def train(cfg: dict) -> Path:
+def _save(obj, path: Path) -> None:
+    """Write via a temp file: a disconnect mid-write (e.g. on a Drive mount) must not
+    leave a truncated checkpoint in place of a good one."""
+    tmp = path.with_name(path.name + ".tmp")
+    torch.save(obj, tmp)
+    os.replace(tmp, path)
+
+
+def _rng_state(gen: torch.Generator | None) -> dict:
+    return {
+        "torch": torch.get_rng_state(),
+        "cuda": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None,
+        "numpy": np.random.get_state(),
+        "python": random.getstate(),
+        "loader": gen.get_state() if gen is not None else None,
+    }
+
+
+def _set_rng_state(st: dict, gen: torch.Generator | None) -> None:
+    torch.set_rng_state(st["torch"])
+    if st.get("cuda") is not None and torch.cuda.is_available():
+        torch.cuda.set_rng_state_all(st["cuda"])
+    np.random.set_state(st["numpy"])
+    random.setstate(st["python"])
+    if gen is not None and st.get("loader") is not None:
+        gen.set_state(st["loader"])
+
+
+def train(cfg: dict, resume: str | Path | None = None) -> Path:
     seed_everything(cfg["seed"], cfg["train"].get("deterministic", True))
     device = select_device(cfg["train"].get("device", "auto"))
     df, card = load_manifest(cfg["data"]["processed_dir"])
     classes = card["class_names"]
     with_seg = card["supervision"] == "mask"
+    if resume is not None:
+        run_dir = Path(resume)
+        prov = json.loads((run_dir / "provenance.json").read_text())
+        if prov["data_version"] != card["data_version"]:
+            raise SystemExit(
+                f"cannot resume {run_dir}: it was trained on data_version "
+                f"{prov['data_version']}, the prepared data is {card['data_version']}"
+            )
+        _train_loop(cfg, run_dir, device, df, card, classes, with_seg, prov)
+        return run_dir
     run_dir = make_run_dir(cfg.get("output_dir", "runs"), cfg.get("experiment", "run"))
     save_config(cfg, run_dir / "config.yaml")
     write_json(
@@ -138,6 +185,11 @@ def train(cfg: dict) -> Path:
         },
         run_dir / "provenance.json",
     )
+    _train_loop(cfg, run_dir, device, df, card, classes, with_seg, None)
+    return run_dir
+
+
+def _train_loop(cfg, run_dir: Path, device, df, card, classes, with_seg, prov) -> None:
     print(
         f"[train] run_dir={run_dir} device={device} data_version={card['data_version']} "
         f"supervision={card['supervision']}"
@@ -161,8 +213,38 @@ def train(cfg: dict) -> Path:
     scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
 
     monitor = tc.get("monitor", "val/macro_f1")
-    best, bad_epochs, history = -np.inf, 0, []
-    for epoch in range(1, tc["epochs"] + 1):
+    best, bad_epochs, history, start, done = -np.inf, 0, [], 1, False
+    gen = getattr(train_dl, "generator", None)
+    last = run_dir / "last.pt"
+    if prov is not None:
+        if not last.exists():
+            raise SystemExit(f"cannot resume {run_dir}: no last.pt (run predates resume support)")
+        # RNG states must stay CPU tensors; optimizer state follows the params on load
+        st = torch.load(last, map_location="cpu", weights_only=False)
+        model.load_state_dict(st["model"])
+        opt.load_state_dict(st["optimizer"])
+        sched.load_state_dict(st["scheduler"])
+        scaler.load_state_dict(st["scaler"])
+        best, bad_epochs, history = st["best"], st["bad_epochs"], st["history"]
+        start, done = st["epoch"] + 1, st.get("done", False)
+        _set_rng_state(st["rng"], gen)
+        prov.setdefault("resumed", []).append(
+            {
+                "after_epoch": st["epoch"],
+                "at": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "git": git_info(),
+                "device": str(device),
+                "gpu": environment_info().get("gpu"),
+            }
+        )
+        write_json(prov, run_dir / "provenance.json")
+        print(f"[train] resuming {run_dir.name} after epoch {st['epoch']} (best {best:.4f})")
+        if done:
+            print("[train] that run had already finished; nothing to train")
+    epoch = start - 1
+    for epoch in range(start, tc["epochs"] + 1):
+        if done:
+            break
         model.train()
         t0, run_loss, n = time.time(), 0.0, 0
         for step, b in enumerate(train_dl):
@@ -208,7 +290,7 @@ def train(cfg: dict) -> Path:
         )
         if improved:
             best, bad_epochs = score, 0
-            torch.save(
+            _save(
                 {
                     "model": model.state_dict(),
                     "classes": classes,
@@ -222,7 +304,24 @@ def train(cfg: dict) -> Path:
             bad_epochs += 1
             if bad_epochs >= tc.get("patience", 10):
                 print(f"[train] early stop at epoch {epoch}")
-                break
+                done = True
+        _save(
+            {
+                "model": model.state_dict(),
+                "optimizer": opt.state_dict(),
+                "scheduler": sched.state_dict(),
+                "scaler": scaler.state_dict(),
+                "epoch": epoch,
+                "best": best,
+                "bad_epochs": bad_epochs,
+                "history": history,
+                "done": done or epoch == tc["epochs"],
+                "rng": _rng_state(gen),
+            },
+            last,
+        )
+        if done:
+            break
     if not (run_dir / "best.pt").exists():  # e.g. metric always NaN in smoke tests
         torch.save(
             {
@@ -234,17 +333,24 @@ def train(cfg: dict) -> Path:
             },
             run_dir / "best.pt",
         )
-    return run_dir
 
 
 def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
-    ap.add_argument("--config", required=True)
+    ap.add_argument("--config", help="experiment config (required unless --resume)")
+    ap.add_argument("--resume", help="run directory to continue from its last.pt")
     ap.add_argument("--no-eval", action="store_true", help="skip test evaluation after training")
     ap.add_argument("overrides", nargs="*")
     args = ap.parse_args(argv)
-    cfg = load_config(args.config, args.overrides)
-    run_dir = train(cfg)
+    if args.resume:
+        if args.overrides:
+            ap.error("--resume uses the run's own config.yaml; overrides are not allowed")
+        cfg = load_config(str(Path(args.resume) / "config.yaml"))
+        run_dir = train(cfg, resume=args.resume)
+    elif args.config:
+        run_dir = train(load_config(args.config, args.overrides))
+    else:
+        ap.error("--config or --resume is required")
     if not args.no_eval:
         from weldsight.eval.evaluate import evaluate_run
 
