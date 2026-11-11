@@ -148,7 +148,8 @@ class TorchPredictor:
                                 c: round(float(std[j, q]), 4) for q, c in enumerate(self.classes)
                             },
                             "pe": round(float(pe[j].max()), 4),
-                            "mi": round(float(mi[j].max()), 4),
+                            # display-scaled like the MI map, so tile and region values agree
+                            "mi": round(float(min(1.0, mi[j].max() * MI_GAIN)), 4),
                         }
                     )
         acc /= cnt

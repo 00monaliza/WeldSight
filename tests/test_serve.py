@@ -172,7 +172,7 @@ def test_riawelc_run_serves_patch_classification(tmp_path):
     assert one.probs.shape == (3, 57, 57) and len(one.tiles) == 1
     t = one.tiles[0]
     assert t["bbox"] == [0, 0, 57, 57] and set(t["probs"]) == set(CLASSES)
-    assert 0 <= t["pe"] <= 1 and 0 <= t["mi"] <= t["pe"] + 1e-6
+    assert 0 <= t["pe"] <= 1 and 0 <= t["mi"] <= 1
     assert np.allclose(one.probs.sum(0), 1, atol=1e-4)
     big = pred.predict(_film(100, 200), 3)  # larger than 1.5 tiles: tiled at native scale
     assert len(big.tiles) == 2 * 4 and big.pe.shape == (100, 200)

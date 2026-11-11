@@ -67,6 +67,13 @@ export function useInspector() {
     return () => { alive = false; clearTimeout(t); ac.abort(); };
   }, [film, engine, mc, apiUrl]);
 
+  // served by weldsight-serve (same origin)? Start on the real model instead of the demo engine.
+  useEffect(() => {
+    const ac = new AbortController();
+    fetchHealth("", ac.signal).then((h) => { if (!h.stub) setSettings((s) => (s.engine === "demo" ? { ...s, engine: "api" } : s)); }, () => {});
+    return () => ac.abort();
+  }, []);
+
   // server status for the header chip and the banner
   useEffect(() => {
     setHealth(null);  // never show the previous endpoint's status while the new one is unknown
