@@ -33,6 +33,24 @@ from weldsight.utils import file_sha256, write_json
 
 
 # --------------------------------------------------------------------------- download
+def _clone_with_retries(url: str, repo: Path, attempts: int = 4) -> None:
+    """Shallow clone over HTTP/1.1, retried: the repo is ~480 MB of RAR parts, and over a
+    flaky link git's HTTP/2 transfer often dies with "stream was not closed cleanly"."""
+    for i in range(1, attempts + 1):
+        shutil.rmtree(repo, ignore_errors=True)  # a broken clone must not look finished
+        r = subprocess.run(
+            ["git", "-c", "http.version=HTTP/1.1", "clone", "--depth", "1", url, str(repo)]
+        )
+        if r.returncode == 0:
+            return
+        print(f"[download] clone failed (attempt {i}/{attempts})", file=sys.stderr)
+        time.sleep(5 * i)
+    sys.exit(
+        f"Could not clone {url}. Download it as a ZIP in the browser (Code -> Download ZIP), "
+        f"unpack it, rename the folder to {repo} and run this command again."
+    )
+
+
 def download_riawelc(raw_dir: Path, url: str) -> None:
     """Clone the RIAWELC repo and extract the multi-part RAR5 archive."""
     raw_dir.mkdir(parents=True, exist_ok=True)
@@ -40,8 +58,8 @@ def download_riawelc(raw_dir: Path, url: str) -> None:
         print(f"[download] RIAWELC already extracted in {raw_dir}")
         return
     repo = raw_dir / "_repo"
-    if not repo.exists():
-        subprocess.run(["git", "clone", "--depth", "1", url, str(repo)], check=True)
+    if not any(repo.rglob("*part01.rar")):
+        _clone_with_retries(url, repo)
     part1 = next(repo.rglob("*part01.rar")).resolve()  # unrar runs with cwd=raw_dir
     for tool in (["unrar", "x", "-o+", "-inul"], ["7zz", "x", "-y"], ["unar", "-f"]):
         if shutil.which(tool[0]):
