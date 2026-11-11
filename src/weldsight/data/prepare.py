@@ -51,28 +51,47 @@ def _clone_with_retries(url: str, repo: Path, attempts: int = 4) -> None:
     )
 
 
+RAR_HELP = (
+    "Need an extractor that really decodes RAR5. Debian/Ubuntu: `apt-get install unrar` "
+    "(not unrar-free). macOS: Homebrew's `rar` cask is disabled and its `sevenzip`/`p7zip` are "
+    "built WITHOUT the RAR codec; use RARLAB's unrar (rarlab.com/download.htm, 'RAR for macOS'), "
+    "or skip the download and serve the bundled sample (models/<run>/demo_data)."
+)
+
+
+def _extracted_ok(raw_dir: Path) -> bool:
+    pngs = [p for p in raw_dir.rglob("*.png") if "_repo" not in p.parts]
+    return bool(pngs) and all(p.stat().st_size > 0 for p in pngs[:: max(1, len(pngs) // 200)])
+
+
 def download_riawelc(raw_dir: Path, url: str) -> None:
     """Clone the RIAWELC repo and extract the multi-part RAR5 archive."""
     raw_dir.mkdir(parents=True, exist_ok=True)
-    if any(raw_dir.rglob("*.png")):
+    if _extracted_ok(raw_dir):
         print(f"[download] RIAWELC already extracted in {raw_dir}")
         return
+    for d in raw_dir.iterdir():  # leftovers of a failed extraction (e.g. 0-byte files)
+        if d.name != "_repo":
+            shutil.rmtree(d) if d.is_dir() else d.unlink()
     repo = raw_dir / "_repo"
     if not any(repo.rglob("*part01.rar")):
         _clone_with_retries(url, repo)
     part1 = next(repo.rglob("*part01.rar")).resolve()  # unrar runs with cwd=raw_dir
-    for tool in (["unrar", "x", "-o+", "-inul"], ["7zz", "x", "-y"], ["unar", "-f"]):
+    # unar is left out on purpose: it fails on ~136 members of this archive
+    for tool in (["unrar", "x", "-o+", "-inul"], ["7zz", "x", "-y"], ["7z", "x", "-y"]):
         if shutil.which(tool[0]):
-            cmd = [*tool, str(part1)]
-            if tool[0] == "unar":
-                cmd += ["-o", str(raw_dir)]
-            subprocess.run(cmd, check=True, cwd=raw_dir)
-            break
+            r = subprocess.run([*tool, str(part1)], cwd=raw_dir)
+            if r.returncode == 0 and _extracted_ok(raw_dir):
+                break
+            # 7-Zip builds without the RAR codec "extract" every member as an empty file
+            for d in raw_dir.iterdir():
+                if d.name != "_repo":
+                    shutil.rmtree(d) if d.is_dir() else d.unlink()
+            print(f"[download] {tool[0]} could not decode the RAR5 archive", file=sys.stderr)
     else:
-        sys.exit(
-            "Need a RAR5 extractor: `apt-get install unrar` (Linux/Colab/Kaggle), "
-            "`brew install rar` or 7-Zip >= 21 (`7zz`)."
-        )
+        sys.exit(RAR_HELP)
+    if not _extracted_ok(raw_dir):
+        sys.exit(RAR_HELP)
     shutil.rmtree(repo, ignore_errors=True)
 
 
