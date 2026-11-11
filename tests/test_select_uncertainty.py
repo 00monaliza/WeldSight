@@ -8,7 +8,7 @@ def _preds(n_rad=20, per=10, seed=0):
     rng = np.random.default_rng(seed)
     rows = []
     for r in range(n_rad):
-        for i in range(per):
+        for _ in range(per):
             t = int(rng.random() < 0.4)
             wrong = rng.random() < 0.25
             p = (1 - t if wrong else t) * 0.8 + 0.1

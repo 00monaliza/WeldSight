@@ -20,6 +20,8 @@ export interface SampleList {
   supervision: string;
   counts: Record<string, Record<string, number>>;
   specimens: Record<string, string[]>;
+  /** set when the server holds a small sample of the dataset (counts are still the full ones) */
+  demo_subset?: { n_patches: number; of: number } | null;
   items: SampleItem[];
 }
 

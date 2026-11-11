@@ -118,6 +118,7 @@ def create_app(
         if samples is None:
             raise HTTPException(404, "server started without a dataset (--data)")
         df, card = samples
+        demo = card.get("demo_subset") or {}
         d = df
         if split:
             d = d[d["split"] == split]
@@ -134,13 +135,15 @@ def create_app(
             "data_version": card.get("data_version"),
             "classes": card["class_names"],
             "supervision": card.get("supervision"),
-            "counts": {
+            # a demo subset (weldsight-demo-subset) carries the full dataset's numbers
+            "counts": demo.get("label_counts")
+            or {
                 sp: {lab: int(n) for lab, n in g["label"].value_counts().items()}
                 for sp, g in df.groupby("split")
             },
-            "specimens": {
-                sp: sorted(g["group_id"].unique().tolist()) for sp, g in df.groupby("split")
-            },
+            "specimens": demo.get("specimens")
+            or {sp: sorted(g["group_id"].unique().tolist()) for sp, g in df.groupby("split")},
+            "demo_subset": {"n_patches": demo["n_patches"], "of": demo["of"]} if demo else None,
             "items": [
                 {
                     "id": r.patch_id,
@@ -170,15 +173,11 @@ def create_app(
 
 def _load_samples(data_dir: str | Path):
     from weldsight.data.dataset import load_manifest
+    from weldsight.data.demo_subset import label_column
 
     df, card = load_manifest(data_dir)
-    cols = [f"cls_{c}" for c in card["class_names"]]
-    pos = df[cols].to_numpy().astype(bool)
     # one display label per patch: its class, "multi" for several, "none" for no defect
-    df["label"] = [
-        "none" if not r.any() else "multi" if r.sum() > 1 else card["class_names"][r.argmax()]
-        for r in pos
-    ]
+    df["label"] = label_column(df, card["class_names"])
     return df, card
 
 

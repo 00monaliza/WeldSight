@@ -225,6 +225,14 @@ def test_sample_browser(tmp_path):
     assert c.get("/api/samples/..%2Fmanifest.png").status_code == 404
     assert TestClient(create_app(StubPredictor())).get("/api/samples").status_code == 404
 
+    from weldsight.data.demo_subset import build
+
+    demo = build(tmp_path, tmp_path / "demo", per_group=1)
+    assert len(list(demo.rglob("*.png"))) == 4  # one per (split, label) cell here
+    j = TestClient(create_app(StubPredictor(CLASSES), data_dir=demo)).get("/api/samples").json()
+    assert j["demo_subset"] == {"n_patches": 4, "of": 4}
+    assert j["counts"]["test"] == {"multi": 1, "crack": 1}  # full counts come from the card
+
 
 def test_torch_predictor_refuses_class_order_mismatch(tmp_path):
     torch = pytest.importorskip("torch")

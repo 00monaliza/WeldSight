@@ -69,6 +69,9 @@ export function DataView({ insp, visible }: { insp: Inspector; visible: boolean 
       <div className="results-head">
         <p className="kicker">Датасет · {data.dataset} · версия данных <code>{data.data_version}</code> · {data.supervision === "label" ? "метки патчей, без масок" : "маски"}</p>
         <h2>На чём модель обучалась и проверялась.</h2>
+        {data.demo_subset && (
+          <p className="caption">Демо-выборка: на этой машине {data.demo_subset.n_patches.toLocaleString("ru-RU")} патчей из {data.demo_subset.of.toLocaleString("ru-RU")}. Числа ниже — по полному датасету.</p>
+        )}
         <p className="lede">Разбиение по образцам шва: ни один образец не попадает в два сплита. Нажмите на патч — модель его проанализирует, и результат можно сравнить с истинной меткой.</p>
       </div>
 
