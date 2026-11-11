@@ -251,7 +251,8 @@ def extract_subset(
     return chosen
 
 
-def open_zip(url: str | None, path: str | None) -> zipfile.ZipFile:
+def open_zip(url: str | None, path: str | None, token: str | None = None) -> zipfile.ZipFile:
+    """`token`: optional OAuth bearer token, for reading Drive through the Drive API."""
     if path:
         return zipfile.ZipFile(path)
     import requests
@@ -282,7 +283,10 @@ def open_zip(url: str | None, path: str | None) -> zipfile.ZipFile:
             raw.close()
             return int(content_range.rsplit("/", 1)[1])
 
-    return RemoteZip(url, fetcher=RangeSizeFetcher, support_suffix_range=False, timeout=120)
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    return RemoteZip(
+        url, fetcher=RangeSizeFetcher, support_suffix_range=False, timeout=120, headers=headers
+    )
 
 
 def main(argv: list[str] | None = None) -> None:
