@@ -35,7 +35,7 @@ export function Viewer({ insp }: { insp: Inspector }) {
     const x = Math.floor(((e.clientX - r.left) / r.width) * film.w), y = Math.floor(((e.clientY - r.top) / r.height) * film.h);
     if (x < 0 || y < 0 || x >= film.w || y >= film.h) return;
     const i = y * film.w + x, c = result.labels[i];
-    setHover({ x, y, cls: c ? pretty(result.classes[c - 1] ?? "?") : "bg", u: result.maps[settings.score][i] });
+    setHover({ x, y, cls: c ? pretty(result.classes[c - 1] ?? "?") : "фон", u: result.maps[settings.score][i] });
   };
 
   const onDrop = (e: DragEvent) => {
@@ -62,26 +62,26 @@ export function Viewer({ insp }: { insp: Inspector }) {
         ) : (
           <div className="empty">
             <div className="empty-inner">
-              <h1>Radiograph<br />in, decision out.</h1>
-              <p>Drop a weld radiograph here. WeldSight segments defects, estimates how sure it is, and tells you which films a human should look at.</p>
+              <h1>Снимок на входе,<br />решение на выходе.</h1>
+              <p>Перетащите сюда рентгенограмму шва. WeldSight находит дефекты, оценивает свою уверенность и говорит, какие снимки должен посмотреть человек. Или откройте патч из вкладки <a href="#data">Датасет</a>.</p>
               <div className="empty-actions">
-                <label className="btn primary">Choose image
+                <label className="btn primary">Выбрать изображение
                   <input type="file" accept="image/*" hidden onChange={(e) => e.target.files?.[0] && void loadFile(e.target.files[0])} />
                 </label>
-                <button className="btn" type="button" onClick={loadSample}>Generate synthetic sample</button>
+                <button className="btn" type="button" onClick={loadSample}>Синтетический пример</button>
               </div>
-              <small>{settings.engine === "demo" ? "Images stay in your browser in demo mode." : "In API mode the image is sent to the server you configured."}</small>
+              <small>{settings.engine === "demo" ? "В демо-режиме изображение не покидает браузер." : "В режиме API изображение отправляется на указанный сервер."}</small>
             </div>
           </div>
         )}
-        <div className="drop-hint">Release to inspect</div>
+        <div className="drop-hint">Отпустите, чтобы проверить</div>
       </div>
 
       <div className="readout">
         <span>x <b>{hover?.x ?? "—"}</b></span><span>y <b>{hover?.y ?? "—"}</b></span>
-        <span>class <b>{hover?.cls ?? "—"}</b></span><span>uncertainty <b>{hover ? hover.u.toFixed(2) : "—"}</b></span>
+        <span>класс <b>{hover?.cls ?? "—"}</b></span><span>неуверенность <b>{hover ? hover.u.toFixed(2) : "—"}</b></span>
         <span className="grow" />
-        <span>{film ? `${film.w}×${film.h}px · ${film.name}` : "—"}</span>
+        <span>{film ? `${film.w}×${film.h} px · ${film.name}` : "—"}</span>
       </div>
     </>
   );

@@ -30,7 +30,8 @@ cd frontend && npm ci && npm run build && cd ..
 ```
 
 ```bash
-uv run weldsight-serve --run runs/<riawelc_cpu_...> --static frontend/dist
+uv run weldsight-fetch-model     # веса из релиза riawelc-cpu-v1, со сверкой sha256
+uv run weldsight-serve --run models/riawelc_cpu_v1 --static frontend/dist
 ```
 
 Открыть http://127.0.0.1:8000. Если обученного прогона нет:

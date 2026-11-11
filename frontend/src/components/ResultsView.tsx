@@ -1,14 +1,20 @@
 const ROWS = [
-  { n: "Crack", rec: 57.0, lo: 52.6, hi: 66.7, sup: "977 patches · 2 specimens", p: 67.0, f1: 0.62, auc: 0.86 },
-  { n: "Porosity", rec: 93.1, lo: 86.8, hi: 97.2, sup: "936 patches · 4 specimens", p: 93.5, f1: 0.93, auc: 0.99 },
-  { n: "Lack of penetration", rec: 19.0, lo: 2.3, hi: 42.8, sup: "658 patches · 3 specimens", p: 64.4, f1: 0.29, auc: 0.72 },
+  { n: "Трещина", rec: 57.0, lo: 52.6, hi: 66.7, sup: "977 патчей · 2 образца", p: 67.0, f1: 0.62, auc: 0.86 },
+  { n: "Пористость", rec: 93.1, lo: 86.8, hi: 97.2, sup: "936 патчей · 4 образца", p: 93.5, f1: 0.93, auc: 0.99 },
+  { n: "Непровар", rec: 19.0, lo: 2.3, hi: 42.8, sup: "658 патчей · 3 образца", p: 64.4, f1: 0.29, auc: 0.72 },
 ];
-const AUROC: [string, number][] = [["Predictive entropy", 0.82], ["Expected entropy", 0.82], ["Max-prob", 0.8], ["Mutual information", 0.54]];
+const AUROC: [string, number][] = [["Предсказательная энтропия", 0.82], ["Ожидаемая энтропия", 0.82], ["Max-prob", 0.8], ["Взаимная информация", 0.54]];
+const SELECTION: [string, number, number][] = [
+  ["Max-prob (выбрана на val)", 0.961, 0.837],
+  ["Предсказательная энтропия", 0.953, 0.852],
+  ["Ожидаемая энтропия", 0.953, 0.852],
+  ["Взаимная информация (выбрана заранее)", 0.934, 0.832],
+];
 const FINDINGS = [
-  ["No dataset has everything.", "RIAWELC has no masks, GDXray has 10 films and one class. SWRD (6 classes, polygons) is the main dataset from here."],
-  ["The published split leaks.", "108 of 109 radiographs sit in both train and test. Re-split by weld specimen (29 specimens)."],
-  ["A flatness shortcut.", "Patch std alone separates defect from no-defect with AUROC 0.91."],
-  ["Tiny effective sample.", "Each test class occurs in only 2–4 specimens, so every recall carries a cluster-bootstrap CI."],
+  ["Ни в одном датасете нет всего.", "В RIAWELC нет масок, в GDXray 10 снимков и один класс. Основной датасет дальше — SWRD (6 классов, полигоны)."],
+  ["Официальный сплит протекает.", "108 из 109 снимков есть и в train, и в test. Разбили заново по образцам шва (29 образцов)."],
+  ["Шорткат по гладкости.", "Одно СКО патча отделяет «дефект / нет дефекта» с AUROC 0.91."],
+  ["Маленькая эффективная выборка.", "Каждый класс в test встречается всего в 2–4 образцах, поэтому у каждого recall есть bootstrap-интервал по снимкам."],
 ];
 
 // Only the four points published in the README
@@ -24,13 +30,13 @@ function ReferralChart() {
   const sx = (v: number) => L + (v / 30) * (R - L), sy = (v: number) => B - ((v - y0) / (y1 - y0)) * (B - T);
   const pts = (a: number[]) => X.map((x, i) => `${sx(x)},${sy(a[i])}`).join(" ");
   return (
-    <svg viewBox="0 0 520 300" role="img" aria-label="Referral curve: model, random and oracle recall at 0, 10, 20 and 30 percent referral" style={{ width: "100%", height: "auto", display: "block" }}>
+    <svg viewBox="0 0 520 300" role="img" aria-label="Кривая передачи: recall модели, случайной передачи и оракула при 0, 10, 20 и 30 % переданных снимков" style={{ width: "100%", height: "auto", display: "block" }}>
       {[55, 60, 65, 70, 75, 80, 85].map((v) => (
         <g key={v}><line x1={L} x2={R} y1={sy(v)} y2={sy(v)} stroke="#23292c" /><text x={L - 8} y={sy(v) + 3} textAnchor="end">{v}</text></g>
       ))}
       {X.map((x) => <text key={x} x={sx(x)} y={B + 18} textAnchor="middle">{x} %</text>)}
-      <text x={(L + R) / 2} y={B + 36} textAnchor="middle">films referred to an inspector</text>
-      <text x={L - 8} y={T - 14} textAnchor="end">recall %</text>
+      <text x={(L + R) / 2} y={B + 36} textAnchor="middle">доля снимков, переданных инспектору</text>
+      <text x={4} y={T - 14} textAnchor="start">recall, %</text>
       <polyline fill="none" stroke="#6b7270" strokeWidth={1.5} strokeDasharray="5 4" points={pts(SERIES.random)} />
       <polyline fill="none" stroke="#e9e7e0" strokeWidth={1.5} strokeDasharray="2 4" points={pts(SERIES.oracle)} />
       <polyline fill="none" stroke="#ffb347" strokeWidth={2.5} points={pts(SERIES.model)} />
@@ -46,10 +52,10 @@ export function ResultsView() {
   return (
     <>
       <div className="results-head">
-        <p className="kicker">Stage 1 · RIAWELC specimen-level split · run <code>riawelc_cpu</code></p>
-        <h2>A pipeline check, not a verdict on the method.</h2>
-        <p className="lede">An offline CPU run: ResNet-18 <em>without</em> ImageNet weights, 8,000 patches per epoch, patch head only (RIAWELC has no masks, so there is no IoU).
-          Test split: 3,073 patches, 21 radiographs, 6 weld specimens. Numbers below are copied from the repository README.</p>
+        <p className="kicker">Этап 1 · RIAWELC, сплит по образцам шва · прогон <code>riawelc_cpu</code></p>
+        <h2>Проверка пайплайна, а не приговор методу.</h2>
+        <p className="lede">Прогон на CPU без интернета: ResNet-18 <em>без</em> весов ImageNet, 8 000 патчей за эпоху, только голова классификации (в RIAWELC нет масок, поэтому нет IoU).
+          Test: 3 073 патча, 21 снимок, 6 образцов шва. Прогон повторён с нуля 28.10 и 11.11 — метрики совпали.</p>
       </div>
 
       <div className="cards4">
@@ -58,33 +64,33 @@ export function ResultsView() {
 
       <div className="split">
         <section className="block">
-          <h3>Per-class recall, test split</h3>
+          <h3>Recall по классам, test</h3>
           <div>
             {ROWS.map((r) => (
               <div className="ci-row" key={r.n}>
                 <div className="nm">{r.n}<small>{r.sup}</small></div>
                 <div className="ci-track"><span className="ci-bar" style={{ left: `${r.lo}%`, width: `${r.hi - r.lo}%` }} /><span className="ci-dot" style={{ left: `${r.rec}%` }} /></div>
                 <div className="ci-val">{r.rec.toFixed(1)}</div>
-                <div className="ci-extra"><span>CI <b>{r.lo}–{r.hi}</b></span><span>precision <b>{r.p}</b></span><span>F1 <b>{r.f1}</b></span><span>AUROC <b>{r.auc}</b></span></div>
+                <div className="ci-extra"><span>ДИ <b>{r.lo}–{r.hi}</b></span><span>precision <b>{r.p}</b></span><span>F1 <b>{r.f1}</b></span><span>AUROC <b>{r.auc}</b></span></div>
               </div>
             ))}
             <div className="ci-scale" style={{ marginTop: 6 }}><span /><div><span>0 %</span><span>50</span><span>100 %</span></div><span /></div>
           </div>
-          <p className="caption">Dot = recall, bar = 95 % cluster bootstrap CI over radiographs. Validation macro-F1 was 0.89 against 0.61 on test: specimen-to-specimen variance, not noise a single split can resolve.</p>
+          <p className="caption">Точка — recall, полоса — 95 % bootstrap-интервал по снимкам. Macro-F1 на val 0.89, на test 0.61: это разброс между образцами шва, и один сплит его не разрешит — нужна k-fold кросс-валидация.</p>
         </section>
 
         <section className="block">
-          <h3>Recall vs. share of films sent to an inspector</h3>
+          <h3>Recall в зависимости от доли снимков, переданных инспектору</h3>
           <ReferralChart />
           <div className="chart-legend">
-            <span><i className="l-model" />model (mutual information)</span><span><i className="l-rand" />random</span><span><i className="l-orc" />oracle</span>
+            <span><i className="l-model" />модель (взаимная информация)</span><span><i className="l-rand" />случайно</span><span><i className="l-orc" />оракул</span>
           </div>
-          <p className="caption">Upper bound: the inspector is assumed to find every defect on referred films. AUC 0.832 model, 0.801 random, 0.875 oracle.</p>
+          <p className="caption">Верхняя оценка: считаем, что инспектор находит все дефекты на переданных снимках. Площадь: модель 0.832, случайно 0.801, оракул 0.875.</p>
         </section>
       </div>
 
       <section className="block wide">
-        <h3>Which uncertainty score flags wrong patches?</h3>
+        <h3>Какая мера неуверенности находит ошибки?</h3>
         <div className="bars">
           {AUROC.map(([n, v]) => (
             <div className={`bar${n.startsWith("Mutual") ? " mi" : ""}`} key={n}>
@@ -92,8 +98,23 @@ export function ResultsView() {
             </div>
           ))}
         </div>
-        <p className="caption">AUROC of uncertainty vs. “patch has an error”. The pre-registered score (mutual information) is the weakest. Most errors are consistent uncertainty (aleatoric),
-          not dropout disagreement. Changing the score based on this test observation would be test-set tuning; pick it on validation.</p>
+        <p className="caption">AUROC неуверенности против «в патче ошибка», test. Заранее выбранная мера (взаимная информация) — самая слабая. Большинство ошибок — устойчивая (алеаторная) неуверенность,
+          а не расхождение между проходами dropout. Менять меру по этому наблюдению на test было бы подгонкой под test, поэтому выбор сделан на val (ниже).</p>
+      </section>
+
+      <section className="block wide">
+        <h3>Выбор меры неуверенности на val (11.11)</h3>
+        <table className="sel">
+          <thead><tr><th>мера</th><th>val: площадь под кривой передачи</th><th>test: площадь</th></tr></thead>
+          <tbody>
+            {SELECTION.map(([n, v, t]) => (
+              <tr key={n} className={n.startsWith("Max") ? "chosen" : undefined}><td>{n}</td><td>{v.toFixed(3)}</td><td>{t.toFixed(3)}</td></tr>
+            ))}
+            <tr className="ref"><td>случайно / оракул</td><td>0.932 / 0.973</td><td>0.801 / 0.875</td></tr>
+          </tbody>
+        </table>
+        <p className="caption">Правило (наибольшая площадь на val) закоммичено до расчёта. Взаимная информация не лучше случайной передачи и на val, так что отказ от неё не подгонка под test.
+          Выбор на val (max-prob) на test обошёл MI, но уступил энтропии: разница ~0.01 при 6 образцах — шум. Вывод: использовать полную неуверенность, окончательный выбор — через k-fold по образцам.</p>
       </section>
     </>
   );

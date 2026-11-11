@@ -13,21 +13,21 @@ function Banner({ insp }: { insp: Inspector }) {
   const { settings, health } = insp;
   if (settings.engine === "demo") {
     return (
-      <div className="demo-banner"><b>Demo engine.</b> A simple blur-difference detector runs in your browser to exercise the interface.
-        It is <u>not</u> the trained WeldSight model, and its detections mean nothing about real weld quality. Switch to the API engine once a model is served.</div>
+      <div className="demo-banner"><b>Демо-движок.</b> В браузере работает простой детектор на разности размытий — только чтобы проверить интерфейс.
+        Это <u>не</u> обученная модель WeldSight, и его находки ничего не говорят о качестве шва. Переключитесь на API, когда сервер с моделью запущен.</div>
     );
   }
   if (health && !health.ok) {
-    return <div className="demo-banner err"><b>API unreachable.</b> {health.error}. Start the server: <code>uv run weldsight-serve --run runs/&lt;run&gt;</code></div>;
+    return <div className="demo-banner err"><b>API недоступен.</b> {health.error}. Запустите сервер: <code>uv run weldsight-serve --run runs/&lt;run&gt;</code></div>;
   }
   if (health?.ok && health.info.mode === "patch") {
     return (
-      <div className="demo-banner"><b>Patch classifier · {health.info.model}.</b> This run was trained on RIAWELC, which has class labels but no masks,
-        so only the patch-classification head is used: one prediction per 256 px tile, not a pixel outline. Open a patch from the <a href="#data">Dataset</a> tab to compare with its true label.</div>
+      <div className="demo-banner"><b>Классификатор патчей · {health.info.model}.</b> Модель обучена на RIAWELC: там есть метки классов, но нет масок,
+        поэтому работает только голова классификации — одно предсказание на тайл 256 px, а не контур дефекта. Откройте патч во вкладке <a href="#data">Датасет</a>, чтобы сравнить с истинной меткой.</div>
     );
   }
   if (health?.ok && health.info.stub) {
-    return <div className="demo-banner"><b>Server is running the stub predictor.</b> It is a heuristic, not a trained model; every region is labelled as the first class. Start it with <code>--run</code> to use a checkpoint.</div>;
+    return <div className="demo-banner"><b>Сервер запущен с заглушкой.</b> Это эвристика, а не обученная модель; все области получают первый класс. Запустите с <code>--run</code>, чтобы использовать чекпоинт.</div>;
   }
   return null;
 }
@@ -41,16 +41,16 @@ export function InspectView({ insp }: { insp: Inspector }) {
         <div className="stage-col">
           <Viewer insp={insp} />
           <div className="toolbar">
-            <Toggle label="Defects" checked={s.showSeg} onChange={(v) => patch({ showSeg: v })} />
-            <Toggle label="Uncertainty" checked={s.showUnc} onChange={(v) => patch({ showUnc: v })} />
-            <Toggle label="Boxes" checked={s.showBox} onChange={(v) => patch({ showBox: v })} />
-            <label className="slider small"><span>Opacity</span>
+            <Toggle label="Дефекты" checked={s.showSeg} onChange={(v) => patch({ showSeg: v })} />
+            <Toggle label="Неуверенность" checked={s.showUnc} onChange={(v) => patch({ showUnc: v })} />
+            <Toggle label="Рамки" checked={s.showBox} onChange={(v) => patch({ showBox: v })} />
+            <label className="slider small"><span>Прозрачность</span>
               <input type="range" min={0.15} max={1} step={0.05} value={s.opacity} onChange={(e) => patch({ opacity: +e.target.value })} />
             </label>
             <span className="grow" />
-            <button className="btn ghost" type="button" disabled={!film || !result} onClick={() => film && result && void savePng(film, result, s)}>Save overlay PNG</button>
-            <button className="btn ghost" type="button" disabled={!film || !result} onClick={() => film && result && saveJson(film, result, s)}>Save report JSON</button>
-            <label className="btn ghost">Open another
+            <button className="btn ghost" type="button" disabled={!film || !result} onClick={() => film && result && void savePng(film, result, s)}>Сохранить PNG</button>
+            <button className="btn ghost" type="button" disabled={!film || !result} onClick={() => film && result && saveJson(film, result, s)}>Сохранить отчёт JSON</button>
+            <label className="btn ghost">Открыть другой
               <input type="file" accept="image/*" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) void loadFile(f); e.target.value = ""; }} />
             </label>
           </div>

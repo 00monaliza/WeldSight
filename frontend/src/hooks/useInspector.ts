@@ -86,9 +86,9 @@ export function useInspector() {
   }, [engine, apiUrl]);
 
   const decision: Decision = useMemo(() => {
-    if (busy) return { state: "idle", title: "Analysing…", sub: engine === "api" ? "Waiting for the API" : `Running ${mc} stochastic passes` };
-    if (error) return { state: "idle", title: "Engine error", sub: error };
-    if (!film || !result) return { state: "idle", title: "Waiting for a film", sub: "Load an image to get a recommendation." };
+    if (busy) return { state: "idle", title: "Анализ…", sub: engine === "api" ? "Ждём ответа API" : `Выполняется ${mc} стохастических проходов` };
+    if (error) return { state: "idle", title: "Ошибка движка", sub: error };
+    if (!film || !result) return { state: "idle", title: "Ждём снимок", sub: "Загрузите изображение, чтобы получить рекомендацию." };
     return decide(result, settings.score, settings.thr);
   }, [busy, error, film, result, engine, mc, settings.score, settings.thr]);
 

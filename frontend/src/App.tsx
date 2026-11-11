@@ -31,7 +31,7 @@ export default function App() {
         <section className="view" hidden={tab !== "results"}><ResultsView /></section>
         <section className="view" hidden={tab !== "api"}><ApiView /></section>
       </main>
-      <footer className="foot">WeldSight · Stage 1 research interface · weld-defect segmentation with uncertainty on real radiographs</footer>
+      <footer className="foot">WeldSight · исследовательский интерфейс этапа 1 · дефекты сварных швов на реальных рентгенограммах с оценкой неуверенности</footer>
     </>
   );
 }

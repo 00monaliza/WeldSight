@@ -14,14 +14,14 @@ export function decide(res: AnalysisResult, s: ScoreKind, thr: number): Decision
   if (res.defects.length && score >= thr) {
     const worst = res.defects.reduce((a, b) => (b.unc[s] > a.unc[s] ? b : a));
     return {
-      state: "refer", score, title: "Send to inspector",
-      sub: `Uncertainty ${score.toFixed(2)} ≥ ${thr.toFixed(2)} on ${worst.suspect ? "a sub-threshold " : "a "}${pretty(worst.cls).toLowerCase()} region. Do not rely on the model alone.`,
+      state: "refer", score, title: "Передать инспектору",
+      sub: `Неуверенность ${score.toFixed(2)} ≥ ${thr.toFixed(2)} на области «${pretty(worst.cls).toLowerCase()}»${worst.suspect ? " (ниже порога обнаружения)" : ""}. Полагаться только на модель нельзя.`,
     };
   }
   if (real.length) {
-    return { state: "flag", score, title: `${real.length} defect${real.length > 1 ? "s" : ""} flagged`, sub: "Model is confident enough to handle this film automatically. Spot-check per your QA policy." };
+    return { state: "flag", score, title: `Найдено дефектов: ${real.length}`, sub: "Модель достаточно уверена, чтобы обработать снимок автоматически. Выборочная проверка — по регламенту контроля качества." };
   }
-  return { state: "clear", score, title: "No defects found", sub: "Nothing above the detection threshold, and nothing uncertain enough to refer." };
+  return { state: "clear", score, title: "Дефектов не найдено", sub: "Ничего выше порога обнаружения и ничего достаточно неуверенного, чтобы передать инспектору." };
 }
 
 export function decisionLabel(d: Decision): string {

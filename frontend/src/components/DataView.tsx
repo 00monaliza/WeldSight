@@ -5,13 +5,13 @@ import { classColor, pretty } from "../lib/classes";
 
 const SPLITS = ["train", "val", "test"] as const;
 const SPLIT_NOTE: Record<string, string> = {
-  train: "the model learnt from these",
-  val: "used to pick the best epoch",
-  test: "never seen during training",
+  train: "на них модель обучалась",
+  val: "по ним выбрана лучшая эпоха",
+  test: "модель их не видела",
 };
 
 const labelOf = (it: SampleItem) => (it.labels.length === 0 ? "none" : it.labels.length > 1 ? "multi" : it.labels[0]);
-const labelName = (l: string) => (l === "none" ? "No defect" : l === "multi" ? "Several" : pretty(l));
+const labelName = (l: string) => (l === "none" ? "Без дефекта" : l === "multi" ? "Несколько" : pretty(l));
 const labelColor = (l: string) => (l === "none" ? "#6b7270" : l === "multi" ? "#e9e7e0" : classColor(l));
 
 /** Browse the prepared dataset served by the API and open any patch in the inspector. */
@@ -56,20 +56,20 @@ export function DataView({ insp, visible }: { insp: Inspector; visible: boolean 
 
   if (error) {
     return (
-      <div className="demo-banner err"><b>Dataset browser unavailable.</b> {error}. Start the server with a run and its prepared data:{" "}
+      <div className="demo-banner err"><b>Датасет недоступен.</b> {error}. Запустите сервер с моделью и подготовленными данными:{" "}
         <code>uv run weldsight-serve --run runs/&lt;run&gt; --static frontend/dist</code></div>
     );
   }
-  if (!data) return <p className="caption">Loading the dataset…</p>;
+  if (!data) return <p className="caption">Загрузка датасета…</p>;
 
   const counts = data.counts[split] ?? {};
   const total = Object.values(counts).reduce((a, b) => a + b, 0);
   return (
     <>
       <div className="results-head">
-        <p className="kicker">Dataset · {data.dataset} · data version <code>{data.data_version}</code> · {data.supervision === "label" ? "patch labels, no masks" : "masks"}</p>
-        <h2>The patches the model was trained and tested on.</h2>
-        <p className="lede">Split by weld specimen, so no specimen appears in two splits. Click a patch to run the model on it and compare with its true label.</p>
+        <p className="kicker">Датасет · {data.dataset} · версия данных <code>{data.data_version}</code> · {data.supervision === "label" ? "метки патчей, без масок" : "маски"}</p>
+        <h2>На чём модель обучалась и проверялась.</h2>
+        <p className="lede">Разбиение по образцам шва: ни один образец не попадает в два сплита. Нажмите на патч — модель его проанализирует, и результат можно сравнить с истинной меткой.</p>
       </div>
 
       <div className="split-tabs" role="tablist">
@@ -77,33 +77,33 @@ export function DataView({ insp, visible }: { insp: Inspector; visible: boolean 
           const n = Object.values(data.counts[sp] ?? {}).reduce((a, b) => a + b, 0);
           return (
             <button key={sp} type="button" role="tab" aria-selected={split === sp} onClick={() => setSplit(sp)}>
-              <b>{sp}</b><span>{n.toLocaleString()} patches · {data.specimens[sp]?.length ?? 0} specimens</span><small>{SPLIT_NOTE[sp]}</small>
+              <b>{sp}</b><span>{n.toLocaleString("ru-RU")} патчей · {data.specimens[sp]?.length ?? 0} образцов</span><small>{SPLIT_NOTE[sp]}</small>
             </button>
           );
         })}
       </div>
 
       <div className="label-filter">
-        <button type="button" aria-pressed={label === "all"} onClick={() => setLabel("all")}>All <em>{total.toLocaleString()}</em></button>
+        <button type="button" aria-pressed={label === "all"} onClick={() => setLabel("all")}>Все <em>{total.toLocaleString("ru-RU")}</em></button>
         {labels.filter((l) => counts[l]).map((l) => (
           <button key={l} type="button" aria-pressed={label === l} onClick={() => setLabel(l)}>
-            <i style={{ background: labelColor(l) }} />{labelName(l)} <em>{(counts[l] ?? 0).toLocaleString()}</em>
+            <i style={{ background: labelColor(l) }} />{labelName(l)} <em>{(counts[l] ?? 0).toLocaleString("ru-RU")}</em>
           </button>
         ))}
         <span className="grow" />
-        <button type="button" className="btn ghost" onClick={() => setSeed((s) => s + 1)}>Shuffle</button>
+        <button type="button" className="btn ghost" onClick={() => setSeed((s) => s + 1)}>Перемешать</button>
       </div>
 
-      <p className="caption">Specimens in {split}: {data.specimens[split]?.join(", ")}</p>
+      <p className="caption">Образцы в {split}: {data.specimens[split]?.join(", ")}</p>
 
       <div className="gallery">
         {items.map((it) => {
           const l = labelOf(it);
           return (
             <button key={it.id} type="button" className="thumb" onClick={() => void open(it)} disabled={opening !== null} title={it.id}>
-              <img src={sampleUrl(settings.apiUrl, it.id)} alt={`${labelName(l)} patch from specimen ${it.specimen}`} loading="lazy" />
-              <span className="tag" style={{ borderColor: labelColor(l), color: labelColor(l) }}>{it.labels.length ? it.labels.map(pretty).join(" + ") : "No defect"}</span>
-              <span className="sid">{opening === it.id ? "analysing…" : it.specimen}</span>
+              <img src={sampleUrl(settings.apiUrl, it.id)} alt={`${labelName(l)}: патч образца ${it.specimen}`} loading="lazy" />
+              <span className="tag" style={{ borderColor: labelColor(l), color: labelColor(l) }}>{it.labels.length ? it.labels.map(pretty).join(" + ") : "Без дефекта"}</span>
+              <span className="sid">{opening === it.id ? "анализ…" : it.specimen}</span>
             </button>
           );
         })}

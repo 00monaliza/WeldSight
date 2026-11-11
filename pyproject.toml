@@ -29,6 +29,7 @@ weldsight-train = "weldsight.train.train:main"
 weldsight-eval = "weldsight.eval.evaluate:main"
 weldsight-select-uncertainty = "weldsight.eval.select_uncertainty:main"
 weldsight-serve = "weldsight.serve.app:main"
+weldsight-fetch-model = "weldsight.serve.fetch:main"
 weldsight-remote-subset = "weldsight.data.remote_subset:main"
 weldsight-split-audit = "weldsight.data.split_audit:main"
 

@@ -1,12 +1,12 @@
 import type { Inspector } from "../hooks/useInspector";
 
 export type Tab = "inspect" | "data" | "results" | "api";
-const LABELS: Record<Tab, string> = { inspect: "Inspect", data: "Dataset", results: "Stage 1 results", api: "API" };
+const LABELS: Record<Tab, string> = { inspect: "Инспекция", data: "Датасет", results: "Результаты этапа 1", api: "API" };
 
 export function Header({ tab, insp }: { tab: Tab; insp: Inspector }) {
   const { settings, health } = insp;
   const api = settings.engine === "api";
-  const chip = !api ? "Demo engine" : health?.ok ? (health.info.stub ? "API · stub" : `API · ${health.info.model}`) : health ? "API · offline" : "API · …";
+  const chip = !api ? "Демо-движок" : health?.ok ? (health.info.stub ? "API · заглушка" : `API · ${health.info.model}`) : health ? "API · нет связи" : "API · …";
   const mode = api && health?.ok && !health.info.stub ? "live" : api && health && !health.ok ? "down" : "demo";
   return (
     <header className="top">

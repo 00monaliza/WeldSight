@@ -30,7 +30,7 @@ export async function fetchSamples(apiUrl: string, perGroup: number, seed: numbe
   if (!r.ok) {
     let detail = "";
     try { detail = (await r.json()).detail; } catch { /* not json */ }
-    throw new Error(`dataset not available (${r.status}${detail ? `: ${detail}` : ""})`);
+    throw new Error(`датасет недоступен (${r.status}${detail ? `: ${detail}` : ""})`);
   }
   return r.json();
 }
@@ -38,7 +38,7 @@ export async function fetchSamples(apiUrl: string, perGroup: number, seed: numbe
 /** Download a dataset patch as a File, so it goes through the same path as an upload */
 export async function sampleFile(apiUrl: string, id: string): Promise<File> {
   const r = await fetch(sampleUrl(apiUrl, id));
-  if (!r.ok) throw new Error(`cannot load ${id} (${r.status})`);
+  if (!r.ok) throw new Error(`не удалось загрузить ${id} (${r.status})`);
   return new File([await r.blob()], `${id}.png`, { type: "image/png" });
 }
 
@@ -63,10 +63,14 @@ function withTimeout(signal: AbortSignal | undefined, ms: number): AbortSignal {
   return signal ? AbortSignal.any([signal, t]) : t;
 }
 
+/** "run (epoch 5)" from the server, shown in Russian */
+export const ruModel = (m?: string) => m?.replace(/\(epoch (\S+)\)/, "(эпоха $1)");
+
 export async function fetchHealth(apiUrl: string, signal?: AbortSignal): Promise<Health> {
   const r = await fetch(`${base(apiUrl)}/api/health`, { signal: withTimeout(signal, HEALTH_TIMEOUT_MS) });
-  if (!r.ok) throw new Error(`health check failed (${r.status})`);
-  return r.json();
+  if (!r.ok) throw new Error(`сервер не отвечает на проверку (${r.status})`);
+  const h: Health = await r.json();
+  return { ...h, model: ruModel(h.model) ?? h.model };
 }
 
 /** R channel of a (grey or colour) PNG, resampled to w x h */
@@ -94,7 +98,7 @@ export async function runApi(film: Film, apiUrl: string, mc: number, signal?: Ab
   try {
     resp = await fetch(`${base(apiUrl)}/api/predict`, { method: "POST", body, signal: withTimeout(signal, PREDICT_TIMEOUT_MS) });
   } catch (e) {
-    if ((e as Error).name === "TimeoutError") throw new Error(`API did not answer within ${PREDICT_TIMEOUT_MS / 1000}s`);
+    if ((e as Error).name === "TimeoutError") throw new Error(`API не ответил за ${PREDICT_TIMEOUT_MS / 1000} с`);
     throw e;
   }
   if (!resp.ok) {
@@ -105,10 +109,10 @@ export async function runApi(film: Film, apiUrl: string, mc: number, signal?: Ab
   const j: PredictResponse = await resp.json();
   // A missing uncertainty must not read as "certain": refuse the response instead of defaulting to 0.
   if (!j.mask_png || !j.maps?.pe || !j.maps?.mi || !Array.isArray(j.defects) || !Array.isArray(j.classes)) {
-    throw new Error("API response is missing mask_png, maps.pe/mi, classes or defects");
+    throw new Error("в ответе API нет mask_png, maps.pe/mi, classes или defects");
   }
   if (j.defects.some((d) => typeof d.uncertainty?.pe !== "number" || typeof d.uncertainty?.mi !== "number")) {
-    throw new Error("API response has a region without uncertainty.pe / uncertainty.mi");
+    throw new Error("в ответе API есть область без uncertainty.pe / uncertainty.mi");
   }
   const { w, h } = film;
   const sx = w / (j.width || w), sy = h / (j.height || h);
@@ -130,7 +134,7 @@ export async function runApi(film: Film, apiUrl: string, mc: number, signal?: Ab
       bbox: [d.bbox[0] * sx, d.bbox[1] * sy, d.bbox[2] * sx, d.bbox[3] * sy].map(Math.round) as [number, number, number, number],
       unc: { pe: d.uncertainty!.pe!, mi: d.uncertainty!.mi! },
     })),
-    model: j.model,
+    model: ruModel(j.model),
     stub: j.stub,
     tiles: j.tiles?.map((t): Tile => ({
       ...t,

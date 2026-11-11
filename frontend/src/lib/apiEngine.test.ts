@@ -10,7 +10,7 @@ afterEach(() => vi.unstubAllGlobals());
 describe("runApi response validation", () => {
   it("refuses a response without uncertainty maps instead of reading it as certain", async () => {
     ok({ width: 64, height: 32, classes: ["crack"], mask_png: "AA==", defects: [] });
-    await expect(runApi(film, "", 5)).rejects.toThrow(/missing/);
+    await expect(runApi(film, "", 5)).rejects.toThrow(/нет mask_png/);
   });
   it("refuses a region without uncertainty values", async () => {
     ok({ width: 64, height: 32, classes: ["crack"], mask_png: "AA==", maps: { pe: "AA==", mi: "AA==" }, defects: [{ cls: "crack", prob: 0.9, bbox: [0, 0, 1, 1] }] });

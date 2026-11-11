@@ -34,7 +34,7 @@ export async function filmFromFile(file: File): Promise<Film> {
   try {
     bmp = await createImageBitmap(file);
   } catch {
-    throw new Error("Cannot read this file in the browser. Use PNG or JPEG.");
+    throw new Error("Браузер не может открыть этот файл. Используйте PNG или JPEG.");
   }
   const film = filmFromSource(bmp, file.name, file);
   bmp.close();

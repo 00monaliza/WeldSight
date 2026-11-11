@@ -6,7 +6,7 @@ export function DecisionCard({ decision, thr }: { decision: Decision; thr: numbe
   const has = "score" in decision;
   return (
     <div className="verdict" data-state={decision.state}>
-      <div className="verdict-label">Decision</div>
+      <div className="verdict-label">Решение</div>
       <div className="verdict-main">{decision.title}</div>
       <div className="verdict-sub">{decision.sub}</div>
       {has && (
@@ -15,7 +15,7 @@ export function DecisionCard({ decision, thr }: { decision: Decision; thr: numbe
             <div className="meter-fill" style={{ width: `${Math.min(100, decision.score * 100)}%` }} />
             <div className="meter-thr" style={{ left: `${thr * 100}%` }} />
           </div>
-          <div className="meter-cap"><span>film uncertainty <b>{decision.score.toFixed(2)}</b></span><span>threshold <b>{thr.toFixed(2)}</b></span></div>
+          <div className="meter-cap"><span>неуверенность снимка <b>{decision.score.toFixed(2)}</b></span><span>порог <b>{thr.toFixed(2)}</b></span></div>
         </>
       )}
     </div>
@@ -32,10 +32,10 @@ export function PatchCard({ insp }: { insp: Inspector }) {
   const predicted = Object.entries(t.probs).filter(([, p]) => p >= thr).map(([c]) => c);
   const truth = film?.truth;
   const same = truth && [...predicted].sort().join() === [...truth.labels].sort().join();
-  const fmt = (l: string[]) => (l.length ? l.map(pretty).join(" + ") : "no defect");
+  const fmt = (l: string[]) => (l.length ? l.map(pretty).join(" + ") : "без дефекта");
   return (
     <div className="patch-card">
-      <div className="verdict-label">{tiles.length > 1 ? `Patch classifier · most uncertain of ${tiles.length} tiles` : "Patch classifier"}</div>
+      <div className="verdict-label">{tiles.length > 1 ? `Классификатор патчей · самый неуверенный из ${tiles.length} тайлов` : "Классификатор патчей"}</div>
       <ul className="pbars">
         {Object.entries(t.probs).map(([c, p]) => (
           <li key={c}>
@@ -50,10 +50,10 @@ export function PatchCard({ insp }: { insp: Inspector }) {
         ))}
       </ul>
       <div className="pmeta">
-        <span>model: <b>{fmt(predicted)}</b></span>
-        {truth && <span>truth: <b>{fmt(truth.labels)}</b> <em className={same ? "ok" : "bad"}>{same ? "match" : "mismatch"}</em></span>}
-        <span>uncertainty {s.score === "pe" ? "PE" : "MI"} <b>{t[s.score].toFixed(2)}</b></span>
-        {truth && <span>{truth.split} split · specimen {truth.specimen}</span>}
+        <span>модель: <b>{fmt(predicted)}</b></span>
+        {truth && <span>истина: <b>{fmt(truth.labels)}</b> <em className={same ? "ok" : "bad"}>{same ? "совпало" : "ошибка"}</em></span>}
+        <span>неуверенность {s.score === "pe" ? "PE" : "MI"} <b>{t[s.score].toFixed(2)}</b></span>
+        {truth && <span>сплит {truth.split} · образец {truth.specimen}</span>}
       </div>
     </div>
   );
@@ -63,32 +63,32 @@ export function SettingsGroup({ insp }: { insp: Inspector }) {
   const { settings: s, patch } = insp;
   return (
     <details className="group" open>
-      <summary>Settings</summary>
+      <summary>Настройки</summary>
       <div className="fields">
-        <label className="field"><span>Engine</span>
+        <label className="field"><span>Движок</span>
           <select value={s.engine} onChange={(e) => patch({ engine: e.target.value as Settings["engine"] })}>
-            <option value="demo">Demo (browser, simulated)</option>
-            <option value="api">WeldSight API</option>
+            <option value="demo">Демо (в браузере, имитация)</option>
+            <option value="api">API WeldSight (модель)</option>
           </select>
         </label>
         {s.engine === "api" && (
           <label className="field"><span>API URL</span>
-            <input type="text" value={s.apiUrl} placeholder="same origin (dev: proxied to :8000)" spellCheck={false} onChange={(e) => patch({ apiUrl: e.target.value })} />
+            <input type="text" value={s.apiUrl} placeholder="тот же адрес (dev: прокси на :8000)" spellCheck={false} onChange={(e) => patch({ apiUrl: e.target.value })} />
           </label>
         )}
-        <label className="field"><span>Uncertainty score</span>
+        <label className="field"><span>Мера неуверенности</span>
           <select value={s.score} onChange={(e) => patch({ score: e.target.value as Settings["score"] })}>
-            <option value="pe">Predictive entropy</option>
-            <option value="mi">Mutual information (BALD)</option>
+            <option value="pe">Предсказательная энтропия</option>
+            <option value="mi">Взаимная информация (BALD)</option>
           </select>
         </label>
-        <label className="field range"><span>MC Dropout passes <b>{s.mc}</b></span>
+        <label className="field range"><span>Проходов MC Dropout <b>{s.mc}</b></span>
           <input type="range" min={2} max={30} step={1} value={s.mc} onChange={(e) => patch({ mc: +e.target.value })} />
         </label>
-        <label className="field range"><span>Refer to inspector above <b>{s.thr.toFixed(2)}</b></span>
+        <label className="field range"><span>Передать инспектору выше <b>{s.thr.toFixed(2)}</b></span>
           <input type="range" min={0.05} max={0.95} step={0.01} value={s.thr} onChange={(e) => patch({ thr: +e.target.value })} />
         </label>
-        <p className="note">On the RIAWELC baseline, predictive entropy flagged wrong patches (AUROC 0.82) far better than mutual information (0.54). See the results tab.</p>
+        <p className="note">На baseline RIAWELC энтропия находит ошибочные патчи (AUROC 0.82) гораздо лучше взаимной информации (0.54). MI не лучше случайной передачи и на val. Подробнее — во вкладке результатов.</p>
       </div>
     </details>
   );
@@ -100,9 +100,9 @@ export function FindingsGroup({ insp }: { insp: Inspector }) {
   const order = defects.map((_, i) => i).sort((a, b) => defects[b].unc[s.score] - defects[a].unc[s.score]);
   return (
     <details className="group" open>
-      <summary>Findings <em>{defects.length}</em></summary>
+      <summary>Находки <em>{defects.length}</em></summary>
       <ul className="defects">
-        {!defects.length && <li className="none">{result ? "No candidate regions." : "Nothing analysed yet."}</li>}
+        {!defects.length && <li className="none">{result ? "Подозрительных областей нет." : "Анализа ещё не было."}</li>}
         {order.map((i) => {
           const d = defects[i], col = classColor(d.cls), u = d.unc[s.score];
           return (
@@ -114,10 +114,10 @@ export function FindingsGroup({ insp }: { insp: Inspector }) {
                 onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setActive(active === i ? -1 : i); } }}
               >
                 <span className="sw" style={{ background: col }} />
-                <span className="nm">{pretty(d.cls)}{d.suspect && <em> · suspect</em>}</span>
+                <span className="nm">{pretty(d.cls)}{d.suspect && <em> · под вопросом</em>}</span>
                 <span className="pr">{(d.prob * 100).toFixed(0)}%</span>
                 <span className="ubar"><i style={{ width: `${Math.min(100, u * 100)}%` }} /><s style={{ left: `${s.thr * 100}%` }} /></span>
-                <span className="meta">u {u.toFixed(2)} · {d.bbox[2]}×{d.bbox[3]}px @ {d.bbox[0]},{d.bbox[1]}</span>
+                <span className="meta">u {u.toFixed(2)} · {d.bbox[2]}×{d.bbox[3]} px @ {d.bbox[0]},{d.bbox[1]}</span>
               </div>
             </li>
           );
@@ -133,7 +133,7 @@ export function LegendGroup({ insp }: { insp: Inspector }) {
   const count = (id: string) => defects.filter((d) => !d.suspect && d.cls === id).length;
   return (
     <details className="group">
-      <summary>Classes</summary>
+      <summary>Классы</summary>
       <ul className="legend">
         {ids.map((id) => <li key={id}><i style={{ background: classColor(id) }} /><span>{pretty(id)}</span><span>{count(id)}</span></li>)}
       </ul>

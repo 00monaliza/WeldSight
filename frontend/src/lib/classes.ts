@@ -25,7 +25,18 @@ export function classColor(id: string): string {
 
 export const hexToRgb = (h: string): [number, number, number] => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)) as [number, number, number];
 
+/** Russian names of the defect classes (SWRD + RIAWELC ids) */
+const RU: Record<string, string> = {
+  porosity: "Пористость",
+  inclusion: "Включение",
+  crack: "Трещина",
+  undercut: "Подрез",
+  lack_of_fusion: "Несплавление",
+  lack_of_penetration: "Непровар",
+};
+
 export function pretty(s: string): string {
+  if (RU[s]) return RU[s];
   const t = s.replace(/_/g, " ");
   return t.charAt(0).toUpperCase() + t.slice(1);
 }
