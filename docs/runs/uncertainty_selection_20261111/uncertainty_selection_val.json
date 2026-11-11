@@ -1,0 +1,43 @@
+{
+  "split": "val",
+  "n_radiographs": 24,
+  "n_groups": 6,
+  "pre_registered_default": "mutual_information",
+  "chosen_by_rule": "max_prob",
+  "random_area": 0.9316704730004062,
+  "oracle_area": 0.9728058600622547,
+  "scores": [
+    {
+      "score": "max_prob",
+      "referral_area": 0.9609808499120314,
+      "recall@10%": 0.8883475436459602,
+      "recall@20%": 0.8940316686967114,
+      "recall@30%": 0.9427527405602923,
+      "error_auroc": 0.8432211727666272
+    },
+    {
+      "score": "predictive_entropy",
+      "referral_area": 0.9533850994721884,
+      "recall@10%": 0.8997157937474625,
+      "recall@20%": 0.9139261063743402,
+      "recall@30%": 0.9293544457978076,
+      "error_auroc": 0.7950647123031342
+    },
+    {
+      "score": "expected_entropy",
+      "referral_area": 0.9531651779672486,
+      "recall@10%": 0.8997157937474625,
+      "recall@20%": 0.9139261063743402,
+      "recall@30%": 0.9248883475436459,
+      "error_auroc": 0.7881841571807265
+    },
+    {
+      "score": "mutual_information",
+      "referral_area": 0.9337444173771823,
+      "recall@10%": 0.8806333739342266,
+      "recall@20%": 0.8899715793747462,
+      "recall@30%": 0.9135200974421437,
+      "error_auroc": 0.7310912358082169
+    }
+  ]
+}
