@@ -223,7 +223,11 @@ def main() -> None:
         from weldsight.config import load_config
 
         guess = Path(load_config(Path(a.run) / "config.yaml")["data"]["processed_dir"])
-        data = guess if (guess / "manifest.csv").exists() else None
+        # full prepared data first; else the small sample shipped with a released model
+        shipped = Path(a.run) / "demo_data" / guess.name
+        data = next((d for d in (guess, shipped) if (d / "manifest.csv").exists()), None)
+        if data is not None:
+            print(f"[serve] dataset browser: {data}")
     uvicorn.run(create_app(predictor, a.cors, a.static, data), host=a.host, port=a.port)
 
 

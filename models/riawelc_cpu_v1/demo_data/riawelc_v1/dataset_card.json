@@ -1,0 +1,213 @@
+{
+  "name": "riawelc_v1",
+  "source": "riawelc",
+  "url": "https://github.com/stefyste/RIAWELC",
+  "license": "No explicit license; README: 'released freely', cite Totino et al. 2022 and Perri et al. 2023",
+  "citation": "Totino B., Spagnolo F., Perri S. RIAWELC: A Novel Dataset of Radiographic Images for Automatic Weld Defects Classification. ICMECE 2022.",
+  "class_names": [
+    "crack",
+    "porosity",
+    "lack_of_penetration"
+  ],
+  "supervision": "label",
+  "patch_size": 256,
+  "n_records_raw": 24407,
+  "n_records": 21964,
+  "duplicates_dropped": 2443,
+  "conflicting_label_dropped": 0,
+  "n_patches": 21964,
+  "groups_per_split": {
+    "train": [
+      "RRT-09R",
+      "RRT-102R",
+      "RRT-105R",
+      "RRT-107R",
+      "RRT-12R",
+      "RRT-13R",
+      "RRT-15R",
+      "RRT-20R",
+      "RRT-23R",
+      "RRT-26R",
+      "RRT-28R",
+      "RRT-30R",
+      "RRT-39R",
+      "RRT-40R",
+      "RRT-97R",
+      "RRT-99R",
+      "bam5"
+    ],
+    "val": [
+      "RRT-101R",
+      "RRT-27R",
+      "RRT-29R",
+      "RRT-31R",
+      "RRT-94R",
+      "RRT-98R"
+    ],
+    "test": [
+      "RRT-11R",
+      "RRT-22R",
+      "RRT-24R",
+      "RRT-42R",
+      "RRT-88R",
+      "RRT-90R"
+    ]
+  },
+  "radiographs_per_split": {
+    "test": 21,
+    "train": 64,
+    "val": 24
+  },
+  "patches_per_split": {
+    "train": 15560,
+    "val": 3331,
+    "test": 3073
+  },
+  "positives_per_split": {
+    "train": {
+      "crack": 4817,
+      "porosity": 3900,
+      "lack_of_penetration": 2813
+    },
+    "val": {
+      "crack": 1076,
+      "porosity": 852,
+      "lack_of_penetration": 535
+    },
+    "test": {
+      "crack": 977,
+      "porosity": 936,
+      "lack_of_penetration": 658
+    }
+  },
+  "groups_with_class_per_split": {
+    "train": {
+      "crack": 9,
+      "porosity": 11,
+      "lack_of_penetration": 5
+    },
+    "val": {
+      "crack": 2,
+      "porosity": 5,
+      "lack_of_penetration": 2
+    },
+    "test": {
+      "crack": 2,
+      "porosity": 4,
+      "lack_of_penetration": 3
+    }
+  },
+  "radiographs_with_class_per_split": {
+    "train": {
+      "crack": 31,
+      "porosity": 42,
+      "lack_of_penetration": 20
+    },
+    "val": {
+      "crack": 8,
+      "porosity": 20,
+      "lack_of_penetration": 8
+    },
+    "test": {
+      "crack": 8,
+      "porosity": 16,
+      "lack_of_penetration": 12
+    }
+  },
+  "data_version": "2c33eedecb1697b9",
+  "prepare_config": {
+    "name": "riawelc_v1",
+    "source": "riawelc",
+    "url": "https://github.com/stefyste/RIAWELC",
+    "license": "No explicit license; README: 'released freely', cite Totino et al. 2022 and Perri et al. 2023",
+    "citation": "Totino B., Spagnolo F., Perri S. RIAWELC: A Novel Dataset of Radiographic Images for Automatic Weld Defects Classification. ICMECE 2022.",
+    "raw_dir": "data/raw/riawelc",
+    "processed_dir": "data/processed/riawelc_v1",
+    "class_names": [
+      "crack",
+      "porosity",
+      "lack_of_penetration"
+    ],
+    "source_opts": {
+      "group_by": "specimen"
+    },
+    "deduplicate": true,
+    "patch_size": 256,
+    "fit_mode": "resize",
+    "split": {
+      "fractions": [
+        0.7,
+        0.15,
+        0.15
+      ],
+      "seed": 0,
+      "n_trials": 20000
+    }
+  },
+  "seed": 42,
+  "prepared_at": "2026-11-11 05:31:21",
+  "seconds": 38.3,
+  "demo_subset": {
+    "n_patches": 96,
+    "of": 21964,
+    "per_group": 8,
+    "seed": 0,
+    "label_counts": {
+      "test": {
+        "crack": 977,
+        "porosity": 936,
+        "lack_of_penetration": 658,
+        "none": 502
+      },
+      "train": {
+        "crack": 4817,
+        "none": 4030,
+        "porosity": 3900,
+        "lack_of_penetration": 2813
+      },
+      "val": {
+        "crack": 1076,
+        "none": 868,
+        "porosity": 852,
+        "lack_of_penetration": 535
+      }
+    },
+    "specimens": {
+      "test": [
+        "RRT-11R",
+        "RRT-22R",
+        "RRT-24R",
+        "RRT-42R",
+        "RRT-88R",
+        "RRT-90R"
+      ],
+      "train": [
+        "RRT-09R",
+        "RRT-102R",
+        "RRT-105R",
+        "RRT-107R",
+        "RRT-12R",
+        "RRT-13R",
+        "RRT-15R",
+        "RRT-20R",
+        "RRT-23R",
+        "RRT-26R",
+        "RRT-28R",
+        "RRT-30R",
+        "RRT-39R",
+        "RRT-40R",
+        "RRT-97R",
+        "RRT-99R",
+        "bam5"
+      ],
+      "val": [
+        "RRT-101R",
+        "RRT-27R",
+        "RRT-29R",
+        "RRT-31R",
+        "RRT-94R",
+        "RRT-98R"
+      ]
+    }
+  }
+}
