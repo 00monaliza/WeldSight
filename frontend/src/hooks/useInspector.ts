@@ -4,7 +4,7 @@ import { decide } from "../lib/decision";
 import { runDemo } from "../lib/demoEngine";
 import { filmFromFile, filmFromSource } from "../lib/imaging";
 import { makeSample } from "../lib/sample";
-import type { AnalysisResult, Decision, Film, Settings } from "../lib/types";
+import type { AnalysisResult, Decision, Film, Settings, Truth } from "../lib/types";
 
 export const DEFAULTS: Settings = {
   engine: "demo", apiUrl: "", score: "pe", mc: 10, thr: 0.55, opacity: 0.6, showSeg: true, showUnc: false, showBox: true,
@@ -28,12 +28,12 @@ export function useInspector() {
   const setNewFilm = useCallback((f: Film) => {
     setFilm(f); setResult(null); setError(null); setActive(-1);
   }, []);
-  const loadFile = useCallback(async (file: File) => {
+  const loadFile = useCallback(async (file: File, truth?: Truth) => {
     if (!file.type.startsWith("image/")) return;
     const seq = ++loadSeq.current;  // a slower, earlier load must not replace a later selection
     try {
       const f = await filmFromFile(file);
-      if (seq === loadSeq.current) setNewFilm(f);
+      if (seq === loadSeq.current) setNewFilm(truth ? { ...f, truth } : f);
     } catch (e) {
       if (seq === loadSeq.current) setError((e as Error).message);
     }

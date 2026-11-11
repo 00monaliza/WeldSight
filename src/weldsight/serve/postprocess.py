@@ -19,11 +19,13 @@ class Prediction:
     probs: [K+1, H, W] float32, mean softmax over MC samples, class 0 = background
     pe:    [H, W] float32 in [0, 1], predictive entropy / ln(K+1)
     mi:    [H, W] float32 in [0, 1], mutual information (BALD), display-scaled
+    tiles: patch mode only: per tile {bbox, probs{class}, std{class}, pe, mi}, input pixels
     """
 
     probs: np.ndarray
     pe: np.ndarray
     mi: np.ndarray
+    tiles: list[dict] | None = None
 
 
 def output_size(h: int, w: int, max_dim: int) -> tuple[int, int]:
@@ -107,6 +109,21 @@ def build_response(pred: Prediction, classes: list[str], max_dim: int = 1024, **
             ]
     else:
         pe, mi = pred.pe, pred.mi
+    tiles = None
+    if pred.tiles is not None:
+        sx, sy = ow / w, oh / h
+        tiles = [
+            {
+                **t,
+                "bbox": [
+                    round(t["bbox"][0] * sx),
+                    round(t["bbox"][1] * sy),
+                    max(1, round(t["bbox"][2] * sx)),
+                    max(1, round(t["bbox"][3] * sy)),
+                ],
+            }
+            for t in pred.tiles
+        ]
     to8 = lambda a: np.clip(np.rint(a * 255), 0, 255).astype(np.uint8)  # noqa: E731
     return {
         "width": ow,
@@ -115,4 +132,5 @@ def build_response(pred: Prediction, classes: list[str], max_dim: int = 1024, **
         "mask_png": _png_b64(labels),
         "maps": {"pe": _png_b64(to8(pe)), "mi": _png_b64(to8(mi))},
         "defects": defects,
+        **({"tiles": tiles} if tiles is not None else {}),
     }

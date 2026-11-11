@@ -1,5 +1,5 @@
 import { canvasToBlob, MAX_DIM } from "./imaging";
-import type { AnalysisResult, Film } from "./types";
+import type { AnalysisResult, Film, Tile, Truth } from "./types";
 
 export interface Health {
   status: string;
@@ -7,6 +7,39 @@ export interface Health {
   stub: boolean;
   classes: string[];
   device?: string;
+  /** "patch" = classification head per tile (label-only run), "segmentation" = per pixel */
+  mode?: "patch" | "segmentation";
+  run?: string;
+}
+
+export interface SampleItem extends Truth { radiograph: string }
+export interface SampleList {
+  dataset: string;
+  data_version: string;
+  classes: string[];
+  supervision: string;
+  counts: Record<string, Record<string, number>>;
+  specimens: Record<string, string[]>;
+  items: SampleItem[];
+}
+
+export const sampleUrl = (apiUrl: string, id: string) => `${base(apiUrl)}/api/samples/${encodeURIComponent(id)}.png`;
+
+export async function fetchSamples(apiUrl: string, perGroup: number, seed: number, signal?: AbortSignal): Promise<SampleList> {
+  const r = await fetch(`${base(apiUrl)}/api/samples?per_group=${perGroup}&seed=${seed}`, { signal });
+  if (!r.ok) {
+    let detail = "";
+    try { detail = (await r.json()).detail; } catch { /* not json */ }
+    throw new Error(`dataset not available (${r.status}${detail ? `: ${detail}` : ""})`);
+  }
+  return r.json();
+}
+
+/** Download a dataset patch as a File, so it goes through the same path as an upload */
+export async function sampleFile(apiUrl: string, id: string): Promise<File> {
+  const r = await fetch(sampleUrl(apiUrl, id));
+  if (!r.ok) throw new Error(`cannot load ${id} (${r.status})`);
+  return new File([await r.blob()], `${id}.png`, { type: "image/png" });
 }
 
 interface PredictResponse {
@@ -18,6 +51,7 @@ interface PredictResponse {
   defects: { cls: string; prob: number; bbox: number[]; uncertainty?: { pe?: number; mi?: number } }[];
   model?: string;
   stub?: boolean;
+  tiles?: { bbox: number[]; probs: Record<string, number>; std: Record<string, number>; pe: number; mi: number }[];
 }
 
 const base = (url: string) => url.trim().replace(/\/+$/, "");
@@ -98,5 +132,9 @@ export async function runApi(film: Film, apiUrl: string, mc: number, signal?: Ab
     })),
     model: j.model,
     stub: j.stub,
+    tiles: j.tiles?.map((t): Tile => ({
+      ...t,
+      bbox: [t.bbox[0] * sx, t.bbox[1] * sy, t.bbox[2] * sx, t.bbox[3] * sy].map(Math.round) as Tile["bbox"],
+    })),
   };
 }

@@ -1,6 +1,6 @@
 import type { Inspector } from "../hooks/useInspector";
 import { savePng, saveJson } from "../lib/report";
-import { DecisionCard, FindingsGroup, LegendGroup, SettingsGroup } from "./Panel";
+import { DecisionCard, FindingsGroup, LegendGroup, PatchCard, SettingsGroup } from "./Panel";
 import { Viewer } from "./Viewer";
 
 function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
@@ -19,6 +19,12 @@ function Banner({ insp }: { insp: Inspector }) {
   }
   if (health && !health.ok) {
     return <div className="demo-banner err"><b>API unreachable.</b> {health.error}. Start the server: <code>uv run weldsight-serve --run runs/&lt;run&gt;</code></div>;
+  }
+  if (health?.ok && health.info.mode === "patch") {
+    return (
+      <div className="demo-banner"><b>Patch classifier · {health.info.model}.</b> This run was trained on RIAWELC, which has class labels but no masks,
+        so only the patch-classification head is used: one prediction per 256 px tile, not a pixel outline. Open a patch from the <a href="#data">Dataset</a> tab to compare with its true label.</div>
+    );
   }
   if (health?.ok && health.info.stub) {
     return <div className="demo-banner"><b>Server is running the stub predictor.</b> It is a heuristic, not a trained model; every region is labelled as the first class. Start it with <code>--run</code> to use a checkpoint.</div>;
@@ -51,6 +57,7 @@ export function InspectView({ insp }: { insp: Inspector }) {
         </div>
         <aside className="panel">
           <DecisionCard decision={decision} thr={s.thr} />
+          <PatchCard insp={insp} />
           <SettingsGroup insp={insp} />
           <FindingsGroup insp={insp} />
           <LegendGroup insp={insp} />

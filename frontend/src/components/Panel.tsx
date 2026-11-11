@@ -22,6 +22,43 @@ export function DecisionCard({ decision, thr }: { decision: Decision; thr: numbe
   );
 }
 
+/** Patch mode: class probabilities (± MC std) of the most uncertain tile, next to the true label. */
+export function PatchCard({ insp }: { insp: Inspector }) {
+  const { result, film, settings: s } = insp;
+  const tiles = result?.tiles;
+  if (!tiles?.length) return null;
+  const t = tiles.reduce((a, b) => (b[s.score] > a[s.score] ? b : a));
+  const thr = 0.5;
+  const predicted = Object.entries(t.probs).filter(([, p]) => p >= thr).map(([c]) => c);
+  const truth = film?.truth;
+  const same = truth && [...predicted].sort().join() === [...truth.labels].sort().join();
+  const fmt = (l: string[]) => (l.length ? l.map(pretty).join(" + ") : "no defect");
+  return (
+    <div className="patch-card">
+      <div className="verdict-label">{tiles.length > 1 ? `Patch classifier · most uncertain of ${tiles.length} tiles` : "Patch classifier"}</div>
+      <ul className="pbars">
+        {Object.entries(t.probs).map(([c, p]) => (
+          <li key={c}>
+            <span className="nm">{pretty(c)}</span>
+            <span className="track">
+              <i style={{ width: `${p * 100}%`, background: classColor(c) }} />
+              <u style={{ left: `${Math.max(0, p - t.std[c]) * 100}%`, width: `${Math.min(1, 2 * t.std[c]) * 100}%` }} />
+              <s style={{ left: `${thr * 100}%` }} />
+            </span>
+            <span className="pv">{(p * 100).toFixed(0)}% <small>±{(t.std[c] * 100).toFixed(0)}</small></span>
+          </li>
+        ))}
+      </ul>
+      <div className="pmeta">
+        <span>model: <b>{fmt(predicted)}</b></span>
+        {truth && <span>truth: <b>{fmt(truth.labels)}</b> <em className={same ? "ok" : "bad"}>{same ? "match" : "mismatch"}</em></span>}
+        <span>uncertainty {s.score === "pe" ? "PE" : "MI"} <b>{t[s.score].toFixed(2)}</b></span>
+        {truth && <span>{truth.split} split · specimen {truth.specimen}</span>}
+      </div>
+    </div>
+  );
+}
+
 export function SettingsGroup({ insp }: { insp: Inspector }) {
   const { settings: s, patch } = insp;
   return (

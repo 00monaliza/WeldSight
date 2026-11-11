@@ -30,8 +30,13 @@ class TorchPredictor:
 
     The image is cut into `data.patch_size` tiles exactly like val/test data (no
     overlap, last row/column shifted inwards), each tile is normalised like training,
-    and overlapping predictions are averaged. Needs a model trained **with masks**
-    (e.g. SWRD); a label-only run (RIAWELC) has an untrained decoder.
+    and overlapping predictions are averaged.
+
+    Two modes, chosen from the run's data source:
+    - `segmentation` (SWRD/GDXray, trained with masks): per-pixel maps from the decoder.
+    - `patch` (RIAWELC, label-only): the decoder is untrained, so only the patch
+      classification head is used. Every tile gets one set of class probabilities and
+      one uncertainty, painted over the whole tile. Localisation is per tile, not per pixel.
     """
 
     stub = False
@@ -48,11 +53,8 @@ class TorchPredictor:
         cfg = load_config(run_dir / "config.yaml")
         data = cfg["data"]
         self.classes = list(data["class_names"])
-        if data.get("source") == "riawelc":
-            raise ValueError(
-                f"{run_dir.name} was trained on RIAWELC (patch labels, no masks): its "
-                "segmentation decoder is untrained. Serve a model trained on SWRD/GDXray."
-            )
+        # RIAWELC has patch labels only: its decoder never saw a mask
+        self.mode = "patch" if data.get("source") == "riawelc" else "segmentation"
         self.patch = int(data.get("patch_size", 256))
         self.norm = cfg["train"].get("normalize", "per_patch")
         self.batch_size = batch_size
@@ -75,6 +77,7 @@ class TorchPredictor:
             "patch_size": self.patch,
             "normalize": self.norm,
             "run": run_dir.name,
+            "mode": self.mode,
         }
 
     def _normalize(self, x: np.ndarray) -> np.ndarray:
@@ -86,6 +89,85 @@ class TorchPredictor:
         return x
 
     def predict(self, gray: np.ndarray, mc_samples: int) -> Prediction:
+        if self.mode == "patch":
+            return self._predict_patches(gray, mc_samples)
+        return self._predict_segmentation(gray, mc_samples)
+
+    def _predict_patches(self, gray: np.ndarray, mc_samples: int) -> Prediction:
+        """Patch-classification head only (label-only runs, e.g. RIAWELC).
+
+        An image no larger than 1.5 tiles is treated as one patch and resized to the
+        tile size, as RIAWELC's 227 px patches were resized to 256 for training. A larger
+        image is tiled at native scale. Per class: mean sigmoid over the T passes, its std,
+        predictive entropy and mutual information of the Bernoulli output. The tile's
+        uncertainty is the maximum over classes (the least certain decision).
+        """
+        from weldsight.data.patching import tile
+
+        torch = self._torch
+        h, w = gray.shape
+        P = self.patch
+        single = max(h, w) <= 1.5 * P
+        img = cv2.resize(gray, (P, P), interpolation=cv2.INTER_AREA) if single else gray
+        patches = tile(img, None, P, P)
+        ih, iw = max(img.shape[0], P), max(img.shape[1], P)
+        K = len(self.classes)
+        acc = np.zeros((K + 1, ih, iw), np.float32)
+        pe_acc, mi_acc, cnt = (np.zeros((ih, iw), np.float32) for _ in range(3))
+        tiles: list[dict] = []
+        bern = lambda q: -(q * np.log(q + EPS) + (1 - q) * np.log(1 - q + EPS))  # noqa: E731
+        bs = max(1, min(32, 256 // mc_samples))
+        with torch.no_grad():
+            for i in range(0, len(patches), bs):
+                chunk = patches[i : i + bs]
+                x = torch.from_numpy(np.stack([self._normalize(p.image) for p in chunk]))[
+                    :, None
+                ].to(self.device)
+                _, cls = self.model.forward_mc(x, mc_samples, with_seg=False)
+                S = torch.sigmoid(cls.float()).cpu().numpy()  # [T,B,K]
+                mean, std = S.mean(0), S.std(0)
+                pe = bern(mean) / math.log(2)  # [B,K] in [0,1]
+                mi = np.maximum(bern(mean) - bern(S).mean(0), 0) / math.log(2)
+                for j, p in enumerate(chunk):
+                    fg = float(mean[j].max())
+                    k = int(mean[j].argmax())
+                    sl = (slice(p.row, p.row + P), slice(p.col, p.col + P))
+                    vec = np.zeros(K + 1, np.float32)
+                    vec[0], vec[k + 1] = 1 - fg, fg
+                    acc[(slice(None), *sl)] += vec[:, None, None]
+                    pe_acc[sl] += pe[j].max()
+                    mi_acc[sl] += mi[j].max()
+                    cnt[sl] += 1
+                    tiles.append(
+                        {
+                            "bbox": [p.col, p.row, P, P],
+                            "probs": {
+                                c: round(float(mean[j, q]), 4) for q, c in enumerate(self.classes)
+                            },
+                            "std": {
+                                c: round(float(std[j, q]), 4) for q, c in enumerate(self.classes)
+                            },
+                            "pe": round(float(pe[j].max()), 4),
+                            "mi": round(float(mi[j].max()), 4),
+                        }
+                    )
+        acc /= cnt
+        pe_acc /= cnt
+        mi_acc = np.clip(mi_acc / cnt * MI_GAIN, 0, 1)
+        acc, pe_acc, mi_acc = (
+            acc[:, : img.shape[0], : img.shape[1]],
+            pe_acc[: img.shape[0], : img.shape[1]],
+            mi_acc[: img.shape[0], : img.shape[1]],
+        )
+        if single and (h, w) != img.shape:
+            acc = np.stack([cv2.resize(a, (w, h), interpolation=cv2.INTER_NEAREST) for a in acc])
+            pe_acc = cv2.resize(pe_acc, (w, h), interpolation=cv2.INTER_NEAREST)
+            mi_acc = cv2.resize(mi_acc, (w, h), interpolation=cv2.INTER_NEAREST)
+            for t in tiles:
+                t["bbox"] = [0, 0, w, h]
+        return Prediction(probs=acc, pe=np.clip(pe_acc, 0, 1), mi=mi_acc, tiles=tiles)
+
+    def _predict_segmentation(self, gray: np.ndarray, mc_samples: int) -> Prediction:
         from weldsight.data.patching import tile
 
         torch = self._torch

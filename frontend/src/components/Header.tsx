@@ -1,7 +1,7 @@
 import type { Inspector } from "../hooks/useInspector";
 
-export type Tab = "inspect" | "results" | "api";
-const LABELS: Record<Tab, string> = { inspect: "Inspect", results: "Stage 1 results", api: "API" };
+export type Tab = "inspect" | "data" | "results" | "api";
+const LABELS: Record<Tab, string> = { inspect: "Inspect", data: "Dataset", results: "Stage 1 results", api: "API" };
 
 export function Header({ tab, insp }: { tab: Tab; insp: Inspector }) {
   const { settings, health } = insp;

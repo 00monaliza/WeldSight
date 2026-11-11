@@ -146,18 +146,84 @@ def test_torch_predictor_end_to_end(tmp_path):
     assert j["stub"] is False and j["classes"] == CLASSES and "epoch 3" in j["model"]
 
 
-def test_riawelc_run_is_refused(tmp_path):
-    pytest.importorskip("torch")
-    from weldsight.serve.inference import TorchPredictor
+def _riawelc_run(tmp_path, torch):
+    from weldsight.models.unet import build_model
 
     cfg = {
-        "model": {"encoder_name": "resnet18"},
-        "data": {"source": "riawelc", "class_names": CLASSES},
-        "train": {},
+        "experiment": "tiny_riawelc",
+        "model": {"arch": "unet", "encoder_name": "resnet18", "encoder_weights": None},
+        "data": {"source": "riawelc", "class_names": CLASSES, "patch_size": 64},
+        "train": {"normalize": "per_patch"},
     }
     (tmp_path / "config.yaml").write_text(yaml.safe_dump(cfg))
-    with pytest.raises(ValueError, match="untrained"):
-        TorchPredictor(tmp_path)
+    state = build_model(cfg, len(CLASSES)).state_dict()
+    torch.save({"model": state, "classes": CLASSES, "epoch": 2}, tmp_path / "best.pt")
+    return tmp_path
+
+
+def test_riawelc_run_serves_patch_classification(tmp_path):
+    """Label-only run: classification head per tile, never the untrained decoder."""
+    torch = pytest.importorskip("torch")
+    from weldsight.serve.inference import TorchPredictor
+
+    pred = TorchPredictor(_riawelc_run(tmp_path, torch), device="cpu")
+    assert pred.info["mode"] == "patch"
+    one = pred.predict(_film(57, 57), 4)  # a single small patch: resized to one tile
+    assert one.probs.shape == (3, 57, 57) and len(one.tiles) == 1
+    t = one.tiles[0]
+    assert t["bbox"] == [0, 0, 57, 57] and set(t["probs"]) == set(CLASSES)
+    assert 0 <= t["pe"] <= 1 and 0 <= t["mi"] <= t["pe"] + 1e-6
+    assert np.allclose(one.probs.sum(0), 1, atol=1e-4)
+    big = pred.predict(_film(100, 200), 3)  # larger than 1.5 tiles: tiled at native scale
+    assert len(big.tiles) == 2 * 4 and big.pe.shape == (100, 200)
+    j = (
+        TestClient(create_app(pred))
+        .post("/api/predict", files={"image": ("f.png", _png(_film(100, 200)), "image/png")})
+        .json()
+    )
+    assert len(j["tiles"]) == 8 and all(len(t["bbox"]) == 4 for t in j["tiles"])
+    assert TestClient(create_app(pred)).get("/api/health").json()["mode"] == "patch"
+
+
+def test_sample_browser(tmp_path):
+    import json
+
+    import pandas as pd
+
+    (tmp_path / "patches").mkdir()
+    rows = []
+    for i, (split, labs) in enumerate(
+        [("train", (1, 0)), ("train", (0, 0)), ("test", (1, 1)), ("test", (0, 1))]
+    ):
+        cv2.imwrite(str(tmp_path / f"patches/p{i}.png"), _film(32, 32, i))
+        rows.append(
+            {
+                "patch_id": f"p{i}",
+                "image": f"patches/p{i}.png",
+                "split": split,
+                "group_id": f"S{i}",
+                "radiograph_id": f"R{i}",
+                "cls_porosity": labs[0],
+                "cls_crack": labs[1],
+            }
+        )
+    pd.DataFrame(rows).to_csv(tmp_path / "manifest.csv", index=False)
+    card = {"name": "toy", "data_version": "v", "class_names": CLASSES, "supervision": "label"}
+    (tmp_path / "dataset_card.json").write_text(json.dumps(card))
+    c = TestClient(create_app(StubPredictor(CLASSES), data_dir=tmp_path))
+    j = c.get("/api/samples").json()
+    assert {i["id"]: i["labels"] for i in j["items"]} == {
+        "p0": ["porosity"],
+        "p1": [],
+        "p2": ["porosity", "crack"],
+        "p3": ["crack"],
+    }
+    assert j["counts"]["test"] == {"multi": 1, "crack": 1}
+    assert [i["id"] for i in c.get("/api/samples?split=train&cls=none").json()["items"]] == ["p1"]
+    r = c.get("/api/samples/p2.png")
+    assert r.status_code == 200 and r.headers["content-type"] == "image/png"
+    assert c.get("/api/samples/..%2Fmanifest.png").status_code == 404
+    assert TestClient(create_app(StubPredictor())).get("/api/samples").status_code == 404
 
 
 def test_torch_predictor_refuses_class_order_mismatch(tmp_path):

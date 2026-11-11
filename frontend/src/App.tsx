@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { ApiView } from "./components/ApiView";
+import { DataView } from "./components/DataView";
 import { Header, type Tab } from "./components/Header";
 import { InspectView } from "./components/InspectView";
 import { ResultsView } from "./components/ResultsView";
 import { useInspector } from "./hooks/useInspector";
 
-const TABS: Tab[] = ["inspect", "results", "api"];
+const TABS: Tab[] = ["inspect", "data", "results", "api"];
 const fromHash = (): Tab => {
   const t = location.hash.slice(1) as Tab;
   return TABS.includes(t) ? t : "inspect";
@@ -26,6 +27,7 @@ export default function App() {
       <Header tab={tab} insp={insp} />
       <main>
         <section className="view" hidden={tab !== "inspect"}><InspectView insp={insp} /></section>
+        <section className="view" hidden={tab !== "data"}><DataView insp={insp} visible={tab === "data"} /></section>
         <section className="view" hidden={tab !== "results"}><ResultsView /></section>
         <section className="view" hidden={tab !== "api"}><ApiView /></section>
       </main>

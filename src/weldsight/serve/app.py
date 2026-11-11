@@ -3,6 +3,11 @@
 uv run weldsight-serve --run runs/<swrd_run>             # trained model
 uv run weldsight-serve --stub                            # no checkpoint: heuristic stub
 uv run weldsight-serve --run runs/<run> --static frontend/dist
+uv run weldsight-serve --run runs/<run> --data data/processed/riawelc_v1   # + dataset browser
+
+With --data (default: the run's processed_dir, if it exists) the server also exposes the
+prepared dataset read-only: GET /api/samples (patch list with split, specimen and labels)
+and GET /api/samples/<patch_id>.png.
 """
 
 from __future__ import annotations
@@ -16,9 +21,9 @@ from typing import Annotated
 
 import cv2
 import numpy as np
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from PIL import Image, UnidentifiedImageError
 
@@ -35,6 +40,7 @@ def create_app(
     predictor: Predictor,
     cors_origins: list[str] | None = None,
     static_dir: str | Path | None = None,
+    data_dir: str | Path | None = None,
 ) -> FastAPI:
     pred = predictor if isinstance(predictor, LockedPredictor) else LockedPredictor(predictor)
     app = FastAPI(title="WeldSight", version="0.1.0")
@@ -99,9 +105,81 @@ def create_app(
         out.update(model=pred.name, stub=pred.stub, mc_samples=mc_samples)
         return out
 
+    samples = _load_samples(data_dir) if data_dir else None
+
+    @app.get("/api/samples")
+    def list_samples(
+        split: str | None = None,
+        cls: str | None = None,
+        per_group: Annotated[int, Query(ge=1, le=200)] = 12,
+        seed: int = 0,
+    ) -> dict:
+        """A stratified sample: up to `per_group` patches per (split, label) cell."""
+        if samples is None:
+            raise HTTPException(404, "server started without a dataset (--data)")
+        df, card = samples
+        d = df
+        if split:
+            d = d[d["split"] == split]
+        if cls:
+            d = d[d["label"] == cls]
+        d = (
+            d.sample(frac=1.0, random_state=seed)
+            .groupby(["split", "label"])
+            .head(per_group)
+            .sort_values(["split", "label", "patch_id"])
+        )
+        return {
+            "dataset": card.get("name"),
+            "data_version": card.get("data_version"),
+            "classes": card["class_names"],
+            "supervision": card.get("supervision"),
+            "counts": {
+                sp: {lab: int(n) for lab, n in g["label"].value_counts().items()}
+                for sp, g in df.groupby("split")
+            },
+            "specimens": {
+                sp: sorted(g["group_id"].unique().tolist()) for sp, g in df.groupby("split")
+            },
+            "items": [
+                {
+                    "id": r.patch_id,
+                    "split": r.split,
+                    "specimen": r.group_id,
+                    "radiograph": r.radiograph_id,
+                    "labels": [c for c in card["class_names"] if getattr(r, f"cls_{c}")],
+                }
+                for r in d.itertuples()
+            ],
+        }
+
+    @app.get("/api/samples/{patch_id}.png")
+    def sample_image(patch_id: str):
+        if samples is None:
+            raise HTTPException(404, "server started without a dataset (--data)")
+        df, _ = samples
+        row = df[df["patch_id"] == patch_id]  # look-up by id: no user-built paths
+        if row.empty:
+            raise HTTPException(404, "unknown patch id")
+        return FileResponse(Path(data_dir) / row.iloc[0]["image"], media_type="image/png")
+
     if static_dir and Path(static_dir).is_dir():
         app.mount("/", StaticFiles(directory=static_dir, html=True), name="ui")
     return app
+
+
+def _load_samples(data_dir: str | Path):
+    from weldsight.data.dataset import load_manifest
+
+    df, card = load_manifest(data_dir)
+    cols = [f"cls_{c}" for c in card["class_names"]]
+    pos = df[cols].to_numpy().astype(bool)
+    # one display label per patch: its class, "multi" for several, "none" for no defect
+    df["label"] = [
+        "none" if not r.any() else "multi" if r.sum() > 1 else card["class_names"][r.argmax()]
+        for r in pos
+    ]
+    return df, card
 
 
 def main() -> None:
@@ -122,6 +200,9 @@ def main() -> None:
     ap.add_argument("--port", type=int, default=8000)
     ap.add_argument("--static", help="directory with the built React app (frontend/dist)")
     ap.add_argument("--cors", nargs="*", help="allowed origins (default: the Vite dev server)")
+    ap.add_argument(
+        "--data", help="prepared dataset to browse (default: the run's processed_dir, if present)"
+    )
     a = ap.parse_args()
     if a.host not in ("127.0.0.1", "localhost", "::1"):
         print(
@@ -138,7 +219,13 @@ def main() -> None:
         from weldsight.serve.inference import TorchPredictor
 
         predictor = TorchPredictor(a.run, device=a.device)
-    uvicorn.run(create_app(predictor, a.cors, a.static), host=a.host, port=a.port)
+    data = a.data
+    if data is None and a.run:
+        from weldsight.config import load_config
+
+        guess = Path(load_config(Path(a.run) / "config.yaml")["data"]["processed_dir"])
+        data = guess if (guess / "manifest.csv").exists() else None
+    uvicorn.run(create_app(predictor, a.cors, a.static, data), host=a.host, port=a.port)
 
 
 if __name__ == "__main__":
