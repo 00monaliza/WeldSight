@@ -49,7 +49,7 @@ uv run weldsight-fetch-model
 uv run weldsight-serve --run models/riawelc_cpu_v1 --static frontend/dist
 
 # свой прогон (SWRD / GDXray — сегментация, RIAWELC — патчи)
-uv run weldsight-serve --run runs/<run_dir> --static frontend/dist
+uv run weldsight-serve --run runs/riawelc_cpu_20261111-053129 --static frontend/dist
 
 # без модели: эвристическая заглушка
 uv run weldsight-serve --stub

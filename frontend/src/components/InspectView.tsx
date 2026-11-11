@@ -18,7 +18,7 @@ function Banner({ insp }: { insp: Inspector }) {
     );
   }
   if (health && !health.ok) {
-    return <div className="demo-banner err"><b>API недоступен.</b> {health.error}. Запустите сервер: <code>uv run weldsight-serve --run runs/&lt;run&gt;</code></div>;
+    return <div className="demo-banner err"><b>API недоступен.</b> {health.error}. Запустите сервер: <code>uv run weldsight-serve --run models/riawelc_cpu_v1 --static frontend/dist</code></div>;
   }
   if (health?.ok && health.info.mode === "patch") {
     return (

@@ -56,8 +56,8 @@ export function DataView({ insp, visible }: { insp: Inspector; visible: boolean 
 
   if (error) {
     return (
-      <div className="demo-banner err"><b>Датасет недоступен.</b> {error}. Запустите сервер с моделью и подготовленными данными:{" "}
-        <code>uv run weldsight-serve --run runs/&lt;run&gt; --static frontend/dist</code></div>
+      <div className="demo-banner err"><b>Датасет недоступен.</b> {error}. Подготовьте данные:{" "}
+        <code>uv run weldsight-prepare --config configs/experiment/riawelc_baseline.yaml --download</code>, затем перезапустите <code>uv run weldsight-serve --run models/riawelc_cpu_v1 --static frontend/dist</code></div>
     );
   }
   if (!data) return <p className="caption">Загрузка датасета…</p>;
