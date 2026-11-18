@@ -57,6 +57,11 @@ uv run weldsight-train --config configs/experiment/riawelc_baseline.yaml train.l
 
 # re-evaluate a finished run (e.g. with more MC samples)
 uv run weldsight-eval --run runs/<run_dir> --split test --mc-samples 30
+
+# recall at a fixed FPR (ROADMAP primary metric): thresholds are fitted on val
+# (specificity = 95 %, eval.target_specificity) and applied to test
+uv run weldsight-eval --run runs/<run_dir> --split val
+uv run weldsight-eval --run runs/<run_dir> --split test   # adds a "Recall at fixed FPR" table
 ```
 
 SWRD / GDXray: download manually (links in `configs/data/*.yaml`) into `data/raw/swrd` or

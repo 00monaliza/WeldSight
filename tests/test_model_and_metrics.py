@@ -88,3 +88,29 @@ def test_referral_curve_endpoints_and_monotonic():
         assert np.all(np.diff(r) >= -1e-12)
     s = summarize_curve(df, ["a", "b", "c"])
     assert s["oracle"]["all"]["area"] >= s["model"]["all"]["area"] - 1e-9
+
+
+def test_thresholds_at_specificity_hits_target_on_fit_data():
+    from weldsight.eval.metrics import thresholds_at_specificity
+
+    rng = np.random.default_rng(0)
+    y = rng.random((400, 2)) < 0.3
+    prob = np.clip(rng.normal(0.3 + 0.4 * y, 0.2), 0, 1)
+    prob[:50, 1] = 0.5  # ties among negatives must not push FP above the budget
+    thr = thresholds_at_specificity(y, prob, 0.95)
+    for k in range(2):
+        neg = prob[~y[:, k], k]
+        fp = (neg >= thr[k]).sum()
+        assert fp <= np.floor(0.05 * len(neg))
+        # smallest such threshold: the highest negative below it would exceed the budget
+        assert fp >= np.floor(0.05 * len(neg)) - (neg == neg[neg < thr[k]].max()).sum()
+
+
+def test_thresholds_at_specificity_edge_cases():
+    from weldsight.eval.metrics import thresholds_at_specificity
+
+    y = np.array([[1], [1]], bool)
+    assert np.isnan(thresholds_at_specificity(y, np.array([[0.2], [0.9]]))[0])
+    y = np.array([[0], [0], [1]], bool)
+    thr = thresholds_at_specificity(y, np.array([[0.1], [0.4], [0.3]]), 1.0)
+    assert 0.4 < thr[0] < 0.41  # all negatives below: no false positives allowed

@@ -27,3 +27,11 @@ def test_train_and_evaluate(fake_riawelc, tmp_path):
     m = evaluate_run(run, "test")
     assert (run / "referral_test.png").exists() and (run / "results_test.md").exists()
     assert m["referral_radiograph"]["model"]["all"]["recall@0%"] <= 1.0
+    assert m["fixed_fpr"] is None  # no val predictions yet: never tune the threshold on test
+
+    evaluate_run(run, "val")
+    m = evaluate_run(run, "test")
+    ff = m["fixed_fpr"]
+    assert ff["threshold_source"] == "val" and ff["target_specificity"] == 0.95
+    assert set(ff["per_class"]) == set(m["patch_level"]) - {"_any_defect", "_macro"}
+    assert "Recall at fixed FPR" in (run / "results_test.md").read_text()

@@ -19,7 +19,12 @@ from torch.utils.data import DataLoader
 
 from weldsight.config import load_config
 from weldsight.data.dataset import WeldPatchDataset, load_manifest
-from weldsight.eval.metrics import cluster_bootstrap_recall, detection_metrics
+from weldsight.eval.metrics import (
+    binary_counts,
+    cluster_bootstrap_recall,
+    detection_metrics,
+    thresholds_at_specificity,
+)
 from weldsight.eval.referral import plot_referral, referral_curve, summarize_curve
 from weldsight.eval.uncertainty import mc_predict
 from weldsight.models.unet import build_model
@@ -81,6 +86,10 @@ def evaluate_run(
     for k, c in enumerate(classes):
         det[c]["recall_ci95"] = ci[k].tolist()
 
+    fixed_fpr = recall_at_val_specificity(
+        run_dir, split, classes, y_true, prob, rad, ec.get("target_specificity", 0.95), cfg["seed"]
+    )
+
     # radiograph-level: a radiograph is positive for class k if any of its patches is
     rt = pd.DataFrame(y_true, columns=classes).groupby(rad).max()
     rp = pd.DataFrame(y_pred, columns=classes).groupby(rad).max()
@@ -126,6 +135,7 @@ def evaluate_run(
         "data_version": card["data_version"],
         "checkpoint_epoch": ckpt.get("epoch"),
         "patch_level": det,
+        "fixed_fpr": fixed_fpr,
         "radiograph_level": rad_metrics,
         "uncertainty_error_auroc": unc_quality,
         "referral_radiograph": summarize_curve(curve, classes),
@@ -145,6 +155,48 @@ def evaluate_run(
     (run_dir / f"results_{tag}.md").write_text(results_markdown(metrics, classes))
     print(results_markdown(metrics, classes))
     return metrics
+
+
+def recall_at_val_specificity(
+    run_dir: Path,
+    split: str,
+    classes: list[str],
+    y_true: np.ndarray,
+    prob: np.ndarray,
+    rad: np.ndarray,
+    target_specificity: float,
+    seed: int,
+) -> dict | None:
+    """Primary metric of the ROADMAP protocol: recall at the val threshold where specificity=95%.
+
+    Thresholds come from predictions_val.csv of the same run (run `weldsight-eval --split val`
+    first). Returns None for the val split itself or when val predictions are missing, so the
+    test threshold is never tuned on test.
+    """
+    val_csv = run_dir / "predictions_val.csv"
+    if split == "val" or not val_csv.exists():
+        return None
+    val = pd.read_csv(val_csv)
+    cols = [f"prob_{c}" for c in classes]
+    if not set(cols) | {f"true_{c}" for c in classes} <= set(val.columns):
+        return None
+    thr = thresholds_at_specificity(
+        val[[f"true_{c}" for c in classes]].to_numpy(), val[cols].to_numpy(), target_specificity
+    )
+    y_pred = (prob >= thr[None, :]).astype(np.uint8)
+    ci = cluster_bootstrap_recall(y_true, y_pred, rad, seed=seed)
+    out = {"target_specificity": target_specificity, "threshold_source": "val", "per_class": {}}
+    for k, c in enumerate(classes):
+        cnt = binary_counts(y_true[:, k], y_pred[:, k])
+        pos, neg = cnt["tp"] + cnt["fn"], cnt["tn"] + cnt["fp"]
+        out["per_class"][c] = {
+            "threshold": float(thr[k]),
+            "recall": cnt["tp"] / pos if pos else float("nan"),
+            "recall_ci95": ci[k].tolist(),
+            # specificity actually reached on this split; differs from the target on val
+            "specificity": cnt["tn"] / neg if neg else float("nan"),
+        }
+    return out
 
 
 def _f(x, pct=False):
@@ -176,6 +228,23 @@ def results_markdown(m: dict, classes: list[str]) -> str:
         f"| **macro** | | {_f(mac['recall'], 1)} | {_f(mac['precision'], 1)} | {_f(mac['f1'])} | "
         f"{_f(mac['auroc'])} | {_f(seg['_mean']['iou']) if seg else '–'} | |"
     )
+    ff = m.get("fixed_fpr")
+    if ff:
+        lines += [
+            "",
+            f"Recall at fixed FPR (threshold from val, specificity = "
+            f"{100 * ff['target_specificity']:.0f}% on val):",
+            "",
+            "| class | val threshold | recall % (95% CI) | specificity % on this split |",
+            "|---|---|---|---|",
+        ]
+        for c in classes:
+            d = ff["per_class"][c]
+            lo, hi = d["recall_ci95"]
+            lines.append(
+                f"| {c} | {_f(d['threshold'])} | {_f(d['recall'], 1)} ({_f(lo, 1)}–{_f(hi, 1)}) | "
+                f"{_f(d['specificity'], 1)} |"
+            )
     r = m["referral_radiograph"]
     lines += [
         "",

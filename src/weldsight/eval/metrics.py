@@ -129,6 +129,31 @@ def detection_metrics(
     return out
 
 
+def thresholds_at_specificity(
+    y_true: np.ndarray, prob: np.ndarray, target_specificity: float = 0.95
+) -> np.ndarray:
+    """Per-class threshold giving specificity >= target on (y_true, prob).
+
+    Meant to be fitted on **val** and applied to test (ROADMAP protocol: recall at a fixed
+    false-positive rate). A plain 0.5 threshold lets an arm buy recall by shifting calibration;
+    a threshold pinned to a specificity on val does not.
+    Returns the smallest threshold t such that at most floor((1 - target) * n_neg) negatives have
+    prob >= t (ties are pushed to the negative side). NaN for a class without negatives.
+    """
+    y_true = y_true.astype(bool)
+    out = np.full(y_true.shape[1], np.nan)
+    for k in range(y_true.shape[1]):
+        neg = np.sort(prob[~y_true[:, k], k])
+        if len(neg) == 0:
+            continue
+        allowed_fp = int(np.floor((1.0 - target_specificity) * len(neg) + 1e-9))
+        if allowed_fp >= len(neg):
+            out[k] = float(neg[0])
+            continue
+        out[k] = float(np.nextafter(neg[len(neg) - allowed_fp - 1], np.inf))
+    return out
+
+
 def cluster_bootstrap_recall(
     y_true: np.ndarray,
     y_pred: np.ndarray,
