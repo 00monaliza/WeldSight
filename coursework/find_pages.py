@@ -6,7 +6,7 @@ txt=[subprocess.run(["pdftotext","-f",str(i),"-l",str(i),"-layout","WeldSight_ku
 def norm(s): return re.sub(r"\s+"," ",s).strip()
 for h in heads:
     if h=="СОДЕРЖАНИЕ": continue
-    for i in range(2,n):  # пропускаем титул и содержание (стр. 2)
+    for i in range(3,n):  # пропуск титула, задания, содержания
         lines=[norm(l) for l in txt[i].split("\n")]
         key=norm(h)[:40]
         if any(l.startswith(key) for l in lines):

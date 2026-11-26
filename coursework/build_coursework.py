@@ -72,16 +72,15 @@ def resolve(text: str) -> str:
 doc = Document()
 sec = doc.sections[0]
 sec.page_height, sec.page_width = Cm(29.7), Cm(21.0)
-sec.left_margin, sec.right_margin = Cm(3.0), Cm(1.5)
+sec.left_margin, sec.right_margin = Cm(3.0), Cm(1.0)
 sec.top_margin, sec.bottom_margin = Cm(2.0), Cm(2.0)
-sec.different_first_page_header_footer = True
 
 st = doc.styles["Normal"]
 st.font.name = FONT
 st.font.size = Pt(14)
 st.element.rPr.rFonts.set(qn("w:eastAsia"), FONT)
 pf = st.paragraph_format
-pf.line_spacing = 1.5
+pf.line_spacing = 1.0
 pf.space_after = Pt(0)
 pf.space_before = Pt(0)
 
@@ -99,12 +98,12 @@ for name, size in (("Heading 1", 14), ("Heading 2", 14)):
     for a in ("w:asciiTheme", "w:hAnsiTheme", "w:eastAsiaTheme", "w:cstheme"):
         if rf.get(qn(a)) is not None:
             del rf.attrib[qn(a)]
-    h.paragraph_format.line_spacing = 1.5
+    h.paragraph_format.line_spacing = 1.0
     h.paragraph_format.keep_with_next = True
 doc.styles["Heading 1"].paragraph_format.space_before = Pt(0)
-doc.styles["Heading 1"].paragraph_format.space_after = Pt(12)
-doc.styles["Heading 2"].paragraph_format.space_before = Pt(12)
-doc.styles["Heading 2"].paragraph_format.space_after = Pt(6)
+doc.styles["Heading 1"].paragraph_format.space_after = Pt(28)
+doc.styles["Heading 2"].paragraph_format.space_before = Pt(28)
+doc.styles["Heading 2"].paragraph_format.space_after = Pt(14)
 
 
 def add_field(run, instr):
@@ -118,14 +117,6 @@ def add_field(run, instr):
             el.text = txt
         run._r.append(el)
 
-
-# нумерация страниц — внизу по центру, на титульном листе нет
-fp = sec.footer.paragraphs[0]
-fp.alignment = WD_ALIGN_PARAGRAPH.CENTER
-r = fp.add_run()
-r.font.name = FONT
-r.font.size = Pt(14)
-add_field(r, "PAGE")
 
 HEADINGS: list[tuple[int, str]] = []
 
@@ -158,7 +149,7 @@ def H1(text, new_page=True):
     if new_page:
         doc.add_page_break()
     h = doc.add_heading(text, level=1)
-    h.alignment = WD_ALIGN_PARAGRAPH.CENTER if text in ("ВВЕДЕНИЕ", "ЗАКЛЮЧЕНИЕ", "СПИСОК ЛИТЕРАТУРЫ", "СОДЕРЖАНИЕ") else WD_ALIGN_PARAGRAPH.LEFT
+    h.alignment = WD_ALIGN_PARAGRAPH.CENTER if text in ("ВВЕДЕНИЕ", "ЗАКЛЮЧЕНИЕ", "СПИСОК ИСПОЛЬЗОВАННОЙ ЛИТЕРАТУРЫ", "СОДЕРЖАНИЕ") else WD_ALIGN_PARAGRAPH.LEFT
     h.paragraph_format.first_line_indent = Cm(1.25) if h.alignment == WD_ALIGN_PARAGRAPH.LEFT else Cm(0)
     HEADINGS.append((1, text))
     return h
@@ -186,7 +177,8 @@ def FIGURE(path, caption, width=14.5):
     p.paragraph_format.line_spacing = 1.0
     p.paragraph_format.space_before = Pt(6)
     p.add_run().add_picture(str(path), width=Cm(width))
-    c = P(caption, indent=False, align="c", spacing=1.0, after=10)
+    caption = re.sub(r"^(Рисунок \d+) – ", r"\1. ", caption)
+    c = P(caption, indent=False, align="c", spacing=1.0, after=14)
     return c
 
 
@@ -205,7 +197,9 @@ def set_cell_borders(table):
 
 
 def TABLE(caption, header, rows, widths=None, size=12, bold_last=False):
-    P(caption, indent=False, align="l", keep=True, spacing=1.0, after=4)
+    num, _, name = caption.partition(" – ")
+    P(num + ".", indent=True, align="l", keep=True, spacing=1.0, after=0)
+    P(name, indent=True, align="l", keep=True, spacing=1.0, after=4)
     t = doc.add_table(rows=1, cols=len(header))
     t.alignment = WD_TABLE_ALIGNMENT.CENTER
     t.autofit = False
@@ -242,30 +236,60 @@ def TABLE(caption, header, rows, widths=None, size=12, bold_last=False):
 
 
 # ================================================================= ТИТУЛЬНЫЙ ЛИСТ
-for line in ["МИНИСТЕРСТВО НАУКИ И ВЫСШЕГО ОБРАЗОВАНИЯ РОССИЙСКОЙ ФЕДЕРАЦИИ",
-             "[Полное наименование вуза]", "[Факультет / институт]", "[Кафедра]"]:
-    P(line, indent=False, align="c", spacing=1.15, after=2)
+def C(text, bold=True, after=0, size=None):
+    return P(text, indent=False, align="c", bold=bold, spacing=1.0, after=after, size=size)
+
+C("ЕВРАЗИЙСКИЙ НАЦИОНАЛЬНЫЙ УНИВЕРСИТЕТ", after=0)
+C("ИМЕНИ Л.Н. ГУМИЛЕВА", after=28)
+C("ИНСТИТУТ ЦИФРОВЫХ НАУК И ИСКУССТВЕННОГО ИНТЕЛЛЕКТА", after=28)
+C("КАФЕДРА [название кафедры]", after=0)
+for _ in range(7):
+    P("", indent=False)
+C("КУРСОВАЯ РАБОТА ПО ДИСЦИПЛИНЕ [НАЗВАНИЕ ДИСЦИПЛИНЫ]", after=28)
+C("ТЕМА: КЛАССИФИКАЦИЯ ДЕФЕКТОВ СВАРНЫХ ШВОВ НА РЕНТГЕНОГРАММАХ С ОЦЕНКОЙ НЕУВЕРЕННОСТИ МОДЕЛИ И АУДИТОМ ОБУЧАЮЩИХ ДАННЫХ (НА ПРИМЕРЕ ПРОЕКТА WELDSIGHT)", after=0)
 for _ in range(5):
-    P("", indent=False, spacing=1.0)
-P("КУРСОВАЯ РАБОТА", indent=False, align="c", bold=True, spacing=1.15, after=6)
-P("по дисциплине «[Название дисциплины]»", indent=False, align="c", spacing=1.15, after=6)
-P("на тему:", indent=False, align="c", spacing=1.15, after=2)
-P("«Классификация дефектов сварных швов на рентгенограммах с оценкой неуверенности модели "
-  "и аудитом обучающих данных (на примере проекта WeldSight)»",
-  indent=False, align="c", bold=True, spacing=1.15)
+    P("", indent=False)
+for line in ["Выполнил: Қабдыбек", "Ризат Досмжанұлы", "студент группы ТИИ-42", "", "Научный руководитель", "[Ф.И.О.]", "[учёная степень, должность]"]:
+    p = P(line, indent=False, align="r", bold=False, spacing=1.0)
 for _ in range(5):
-    P("", indent=False, spacing=1.0)
-for line in ["Выполнил: студент группы [номер группы]", "[Фамилия Имя Отчество]", "",
-             "Научный руководитель:", "[Должность, степень, Ф. И. О.]"]:
-    p = P(line, indent=False, align="l", spacing=1.15, after=2)
-    p.paragraph_format.left_indent = Cm(8.5)
-for _ in range(4):
-    P("", indent=False, spacing=1.0)
-P("[Город] — 2026", indent=False, align="c")
+    P("", indent=False)
+C("Астана", bold=False)
+C("2026", bold=False)
+
+# ================================================================= ЗАДАНИЕ (приложение Б к Положению)
+doc.add_page_break()
+C("ЕВРАЗИЙСКИЙ НАЦИОНАЛЬНЫЙ УНИВЕРСИТЕТ", after=0)
+C("ИМЕНИ Л.Н. ГУМИЛЕВА", after=28)
+P("Кафедра [название кафедры]", indent=False, align="c", spacing=1.0)
+P("Дисциплина [название дисциплины]", indent=False, align="c", spacing=1.0, after=28)
+for line in ["УТВЕРЖДАЮ", "Зав. кафедрой ____________", "«___» ____________ 20__ г."]:
+    P(line, indent=False, align="l", spacing=1.0).paragraph_format.left_indent = Cm(9.5)
+P("", indent=False)
+P("ЗАДАНИЕ", indent=False, align="c", spacing=1.0)
+P("на курсовую работу обучающегося Қабдыбек Ризата Досмжанұлы (группа ТИИ-42)", indent=False, align="c", spacing=1.0, after=20)
+P("Тема курсовой работы: Классификация дефектов сварных швов на рентгенограммах с оценкой неуверенности модели и аудитом обучающих данных (на примере проекта WeldSight).", indent=False, align="l", spacing=1.0, after=10)
+P("Целевая установка: разработать и экспериментально проверить воспроизводимый конвейер классификации дефектов сварных швов с оценкой неуверенности модели, проверкой корректности данных и метрик.", indent=False, align="l", spacing=1.0, after=10)
+P("Объем курсовой работы – не менее 25 страниц.", indent=False, align="l", spacing=1.0, after=20)
+P("Срок доклада руководителю о ходе разработки курсовой работы:", indent=False, align="l", spacing=1.0, after=10)
+P("а) доклад о собранном материале и ходе разработки курсовой работы до «___» ____________ 20__ г.", indent=False, align="l", spacing=1.0, after=10)
+P("б) доклад о ходе написания курсовой работы до «___» ____________ 20__ г.", indent=False, align="l", spacing=1.0, after=10)
+P("Срок сдачи курсовой работы – «___» ____________ 20__ г.", indent=False, align="l", spacing=1.0, after=20)
+P("Руководитель курсовой работы: ____________________  ____________________", indent=False, align="l", spacing=1.0, after=6)
+P("«___» ____________ 20__ г.", indent=False, align="l", spacing=1.0)
+
+# новая секция: с неё идёт сквозная нумерация внизу по центру (титул и задание номер не показывают)
+ns = doc.add_section(WD_SECTION.NEW_PAGE)
+ns.footer.is_linked_to_previous = False
+fp = ns.footer.paragraphs[0]
+fp.alignment = WD_ALIGN_PARAGRAPH.CENTER
+r = fp.add_run()
+r.font.name = FONT
+r.font.size = Pt(14)
+add_field(r, "PAGE")
 
 # ================================================================= СОДЕРЖАНИЕ (статическое)
 TOC_ANCHOR = len(doc.paragraphs)
-H1("СОДЕРЖАНИЕ")
+H1("СОДЕРЖАНИЕ", new_page=False)
 TOC_PLACEHOLDER_AT = doc.add_paragraph()  # сюда вставим строки позже
 
 # ================================================================= ВВЕДЕНИЕ
@@ -293,6 +317,13 @@ P("**Третья проблема — редкие классы.** Некото
   "Один из путей — пополнение обучающей выборки синтетическими дефектами (copy-paste {cp} или диффузионные "
   "модели {ddpm, ldm, repaint}). Но польза такого подхода может быть оценена только на реальных снимках и "
   "при корректной постановке эксперимента.")
+P("**Краткий обзор литературы.** Свёрточные сети для расшифровки радиограмм сварных швов описаны в работах на "
+  "наборе RIAWELC {totino, perri}; маски для сегментации есть в наборах GDXray {mery} и SWRD {zhao}. "
+  "Оценка неуверенности основана на байесовской трактовке дропаута {gal}, различении алеаторной и "
+  "эпистемической неуверенности {kendall} и ансамблях {ens}. Работы по синтезу дефектов (copy-paste {cp}, "
+  "диффузия {ldm}) оценивают результат, как правило, по общей метрике. Недостаточно разобрано, как при малом "
+  "числе образцов сварных швов корректно разбивать данные, выбирать меру неуверенности и сообщать "
+  "доверительные интервалы; этому посвящена данная работа.")
 P("**Цель работы** — разработать и экспериментально проверить воспроизводимый конвейер классификации дефектов "
   "сварных швов на рентгенограммах с оценкой неуверенности модели и с проверкой корректности самих данных и "
   "метрик.")
@@ -322,7 +353,7 @@ P("**Структура работы.** Работа состоит из вве�
   "результаты, а также ограничения.")
 
 # ================================================================= ГЛАВА 1
-H1("1 ТЕОРЕТИЧЕСКИЕ ОСНОВЫ И ОБЗОР")
+H1("1 Теоретические основы и обзор")
 H2("1.1 Радиографический контроль сварных швов и типы дефектов")
 P("При радиографическом контроле шов просвечивается рентгеновским или гамма-излучением, а прошедшее "
   "излучение регистрируется на плёнке или цифровом детекторе {gost, iso}. Участки с пониженной плотностью "
@@ -400,7 +431,7 @@ P("**Выводы по главе 1.** Для корректной оценки 
   "масок и строгого протокола. Эти положения определяют методику главы 2.")
 
 # ================================================================= ГЛАВА 2
-H1("2 ДАННЫЕ И МЕТОДИКА")
+H1("2 Данные и методика")
 H2("2.1 Постановка задачи")
 P("Дано радиографическое изображение шва, нарезанное на квадратные фрагменты (патчи) 256×256 пикселей "
   "(фрагменты RIAWELC размером 227×227 приводятся к этому размеру). Для каждого патча требуется "
@@ -511,7 +542,7 @@ P("**Выводы по главе 2.** Данные проверены и раз
   "и метрики с доверительными интервалами; выбор меры зафиксирован заранее.")
 
 # ================================================================= ГЛАВА 3
-H1("3 РЕАЛИЗАЦИЯ И РЕЗУЛЬТАТЫ")
+H1("3 Реализация и результаты")
 H2("3.1 Архитектура программной реализации")
 P("Проект оформлен как Python-пакет weldsight (Python 3.11, PyTorch, segmentation_models_pytorch) "
   "и состоит из модулей, перечисленных в таблице 3. Код сопровождается автоматическими тестами "
@@ -683,11 +714,11 @@ P("**Направления дальнейшей работы:** эталонн�
   "протоколу.")
 
 # ================================================================= ЛИТЕРАТУРА
-H1("СПИСОК ЛИТЕРАТУРЫ")
+H1("СПИСОК ИСПОЛЬЗОВАННОЙ ЛИТЕРАТУРЫ")
 LIT_ANCHOR = doc.add_paragraph()  # заполняется ниже (нужен конечный порядок цитирования)
 
 # ================================================================= ПРИЛОЖЕНИЯ
-H1("ПРИЛОЖЕНИЕ А (справочное). Воспроизведение результатов")
+H1("Приложение А. Воспроизведение результатов")
 P("Установка и тесты:", indent=False, keep=True)
 
 
@@ -718,6 +749,46 @@ P("Первичные материалы к главе 3 находятся в �
   "обучения, кривая передачи) и docs/runs/uncertainty_selection_20261111/ (выбор меры неуверенности).",
   indent=False)
 
+H1("Приложение Б. Перечень сокращений и условных обозначений")
+TABLE("Таблица Б.1 – Сокращения и обозначения",
+      ["Обозначение", "Расшифровка"],
+      [["AP", "Average Precision, средняя точность (площадь под кривой precision–recall)"],
+       ["AUROC", "площадь под ROC-кривой"],
+       ["BALD", "Bayesian Active Learning by Disagreement, взаимная информация между предсказанием и параметрами модели"],
+       ["CI / ДИ", "доверительный интервал (здесь 95 %, кластерный бутстреп по снимкам)"],
+       ["CNN", "свёрточная нейронная сеть"],
+       ["Dice, Focal", "функции потерь для сегментации и для несбалансированных классов"],
+       ["F1", "среднее гармоническое precision и recall"],
+       ["IoU", "Intersection over Union, пересечение к объединению масок"],
+       ["MC Dropout", "Monte Carlo Dropout, дропаут при предсказании для оценки неуверенности"],
+       ["MI", "взаимная информация (эпистемическая часть неуверенности)"],
+       ["Patch (патч)", "квадратный фрагмент радиограммы 256×256 пикселей"],
+       ["RIAWELC, GDXray, SWRD", "наборы данных радиограмм сварных швов (раздел 1.5)"],
+       ["val / test", "валидационная и тестовая части разбиения"],
+       ["Recall", "полнота: доля найденных дефектов среди имеющихся"],
+       ["U-Net", "свёрточная архитектура «энкодер–декодер» для сегментации"]],
+      widths=[4.0, 13.0], size=12)
+
+H1("Приложение В. Результаты на валидационной выборке")
+P("Для полноты приведены результаты той же модели на валидационной выборке (24 снимка, 6 образцов, "
+  "3 331 патч; MC Dropout, T = 10, порог 0,5). Они использовались для ранней остановки и выбора меры "
+  "неуверенности; сравнение с таблицей 4 иллюстрирует разрыв между val и test (раздел 3.5).", indent=True)
+TABLE("Таблица В.1 – Метрики по классам на валидации",
+      ["Класс", "Патчей", "Recall, % (95 % ДИ)", "Precision, %", "F1", "AUROC", "Recall по снимкам, %"],
+      [["Трещина", "1 076", "86,5 (76,5–96,6)", "97,5", "0,92", "0,99", "100,0"],
+       ["Пористость", "852", "90,7 (81,0–97,0)", "95,1", "0,93", "0,98", "100,0"],
+       ["Непровар", "535", "78,9 (47,6–89,7)", "88,1", "0,83", "0,96", "62,5"],
+       ["Среднее (macro)", "", "85,4", "93,6", "0,89", "0,98", ""]],
+      widths=[3.0, 1.8, 3.6, 2.2, 1.4, 1.6, 3.2], size=11, bold_last=True)
+TABLE("Таблица В.2 – Recall (%) при передаче части снимков инспектору, валидация",
+      ["Доля снимков у инспектора", "Модель", "Случайный отбор", "Оракул"],
+      [["0 %", "86,3", "86,3", "86,3"], ["10 %", "88,1", "87,5", "90,7"],
+       ["20 %", "89,0", "88,7", "93,6"], ["30 %", "91,4", "90,3", "96,5"],
+       ["Площадь под кривой", "0,934", "0,932", "0,973"]],
+      widths=[6.0, 3.0, 4.0, 3.0], bold_last=True)
+P("На val взаимная информация даёт площадь 0,934 против 0,932 у случайной передачи, то есть практически "
+  "не отличается от случайности; это и послужило основанием для отказа от неё (раздел 3.7).", indent=True)
+
 # ---------------------------------------------------------------- список литературы
 body = LIT_ANCHOR._p
 prev = body
@@ -725,7 +796,7 @@ for i, k in enumerate(CITE_ORDER, 1):
     p = doc.add_paragraph()
     p.paragraph_format.first_line_indent = Cm(1.25)
     p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-    p.add_run(f"{i}. {BIB[k]}")
+    p.add_run(f"{i} {BIB[k]}")
     prev.addnext(p._p)
     prev = p._p
 body.getparent().remove(body)
@@ -737,10 +808,10 @@ for lvl, text in HEADINGS:
     if text == "СОДЕРЖАНИЕ":
         continue
     p = doc.add_paragraph()
-    p.paragraph_format.line_spacing = 1.15
+    p.paragraph_format.line_spacing = 1.0
     p.paragraph_format.space_after = Pt(3)
-    p.paragraph_format.left_indent = Cm(0 if lvl == 1 else 0.8)
-    p.paragraph_format.tab_stops.add_tab_stop(Cm(16.5), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.DOTS)
+    p.paragraph_format.left_indent = Cm(0 if lvl == 1 else 0.6)
+    p.paragraph_format.tab_stops.add_tab_stop(Cm(17.0), WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.DOTS)
     label = text if text.isupper() or text.startswith("ПРИЛОЖЕНИЕ") else text
     p.add_run(f"{label}\t{TOC_PAGES.get(text, '0')}")
     prev.addnext(p._p)
